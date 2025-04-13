@@ -6,10 +6,18 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 #-----------------------------ORIGINAL DATA-----------------------------
 
-#Step 1 - Import antenna pattern information
-with open('U7-Outdoor-5GHz.ant', 'r', encoding='utf16') as antenna_file:
-    antenna_data = antenna_file.readlines()
-antenna_list = [float(line.strip()) for line in antenna_data]
+#Import antenna pattern
+try:
+    with open('U7-Outdoor-5GHz.ant', 'r', encoding='utf16') as antenna_file:
+        antenna_data = antenna_file.readlines()
+        antenna_list = [float(line.strip()) for line in antenna_data]
+except FileNotFoundError:
+    print("Error: File 'U7-Outdoor-5GHz.ant' not found.")
+    exit()
+except Exception as e:
+    print(f"Error: {e}")
+    exit()
+
 
 # seperate azimuth and elevation in 1deg increments:
 az = antenna_list[0:360]
@@ -110,16 +118,13 @@ def summing_algorithm(g_az,g_el):
 
     return pattern, azimuth, elevation
 
-def cross_weighting(g_az,g_el):
+def approx_algorithm(g_az,g_el):
     # create the angle coordinates necessary for polar plotting:
     azimuth = np.deg2rad(np.arange(0,360,1))
     elevation = np.deg2rad(np.arange(0,180,1))
     
     # create final gain array:
     pattern = np.zeros((360,180))
-    
-    # perform cross-weighted scaling to make the final gain array:
-    #print(10**np.divide(g_el,10))
     
     vert = 10**(np.divide(g_el,10))
     hor = 10**(np.divide(g_az,10))
@@ -146,8 +151,8 @@ def cross_weighting(g_az,g_el):
 
     return pattern, azimuth, elevation
 
-def hybrid(g_az,g_el):
-    cross_pat,caz,cel = cross_weighting(g_az, g_el)
+def hybrid_algorithm(g_az,g_el):
+    approx_pat,caz,cel = approx_algorithm(g_az, g_el)
     sum_pat,saz,sel = summing_algorithm(g_az,g_el)
     
     sum_pat_dec = 10**(np.divide(sum_pat,10))
@@ -156,7 +161,7 @@ def hybrid(g_az,g_el):
     n = 20
     
     # change  'n' value in **(1/n) for different results
-    pattern = sum_pat * (sum_pat_dec**(1/n)) + cross_pat * (1-(sum_pat_dec)**(1/n))
+    pattern = sum_pat * (sum_pat_dec**(1/n)) + approx_pat * (1-(sum_pat_dec)**(1/n))
     azimuth = caz
     elevation = cel
 
@@ -187,19 +192,19 @@ def spherical_to_cartesian(azimuth,elevation,pattern):
     return x, y, z, gain
             
 
-def plot_antenna_pattern(az_gain,el_gain,method='cross'):
+def plot_antenna_pattern(az_gain,el_gain,method):
     if method == 'summing':
         g,az,el = summing_algorithm(az_gain,el_gain)
         name='Antenna Pattern Data, 3D [Summing Algorithim]'
-    elif method == 'cross':
-         g,az,el = cross_weighting(az_gain,el_gain)
+    elif method == 'approx':
+         g,az,el = approx_algorithm(az_gain,el_gain)
          name='Antenna Pattern Data, 3D [Approximation Algorithim]'
     elif method == 'hybrid':
-         g,az,el = hybrid(az_gain,el_gain)
+         g,az,el = hybrid_algorithm(az_gain,el_gain)
          name='Antenna Pattern Data, 3D [Hybrid Algorithim]'
     else:
-         raise Exception("Choose a valid method: 'Summing', 'Cross', 'Hybrid', or leave that field blank")
-        
+         raise Exception("Choose a valid method: 'summing', 'approx', 'hybrid', or leave that field blank")
+    
     x,y,z,gain = spherical_to_cartesian(az,el,g)
     
     return g, x, y, z, name
@@ -207,6 +212,7 @@ def plot_antenna_pattern(az_gain,el_gain,method='cross'):
 
 #-----------------------------RUN SCRIPT-----------------------------
 g, x, y, z, name = plot_antenna_pattern(az_denser,el_denser,'summing') #NOTE: Pick method here
+print(f"Interpolation Method selected: {name}")
 az_post3d = g[:,0] #Azimuthal slice at elevation = 0deg
 el_post3d = np.array(list(g[0,:])+list(np.flipud(g[359,:])))
 
@@ -221,126 +227,139 @@ plt.axis('off')
 az_2d_cartesian1, ax2 = plt.subplots()
 plt.plot(theta, az, label = "Original")
 plt.plot(theta_up, az_denser, label = "2D Interpolation")
-plt.title('Rectangular Raidiation Plot (Azimuth)')
+plt.title('Rectangular Radiation Plot (Azimuth)')
 plt.xlabel('Angle [rad]')
 plt.ylabel('Normalized Gain [dBi]')
 custom_ticks = [0, np.pi/2, np.pi, (3*np.pi)/2, 2*np.pi]
-custom_tick_labels = ['$0$', '$\pi/2$', '$\pi$', '$3\pi/2$', '$2\pi$']
+custom_tick_labels = [r'$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']
 ax2.set_xticks(custom_ticks)
 ax2.set_xticklabels(custom_tick_labels)
 plt.legend()
-
-
-#Calculate avg  percent error [2D_AZ]
-AvgError2D_Az = (az - az_denser)
-AvgError2D_Az = AvgError2D_Az ** 2
-AvgError2D_Az = np.mean(AvgError2D_Az)
-print(AvgError2D_Az)
-
 
 #Compare original and 3D [Azimuth]
 az_2d_cartesian2, ax3 = plt.subplots()
 plt.plot(theta, az, label = "Original")
 plt.plot(theta, az_post3d, label = "3D Interpolation")
-plt.title('Rectangular Raidiation Plot (Azimuth)')
+plt.title('Rectangular Radiation Plot (Azimuth)')
 plt.xlabel('Angle [rad]')
 plt.ylabel('Normalized Gain [dBi]')
 custom_ticks = [0, np.pi/2, np.pi, (3*np.pi)/2, 2*np.pi]
-custom_tick_labels = ['$0$', '$\pi/2$', '$\pi$', '$3\pi/2$', '$2\pi$']
+custom_tick_labels = [r'$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']
 ax3.set_xticks(custom_ticks)
 ax3.set_xticklabels(custom_tick_labels)
 plt.legend()
-
-
-#Calculate avg  percent error [3D_AZ]
-AvgError3D_Az = (az - az_post3d)
-AvgError3D_Az = AvgError3D_Az ** 2
-AvgError3D_Az = np.mean(AvgError3D_Az)
-print(AvgError3D_Az)
-
 
 #Compare original and 2D [Elevation]
 el_2d_cartesian1, ax4 = plt.subplots()
 plt.plot(theta, el, label = "Original Data")
 plt.plot(theta_up, el_denser, label = "2D Interpolation")
-plt.title('Rectangular Raidiation Plot (Elevation)')
+plt.title('Rectangular Radiation Plot (Elevation)')
 plt.xlabel('Angle [rad]')
 plt.ylabel('Normalized Gain [dBi]')
 custom_ticks = [0, np.pi/2, np.pi, (3*np.pi)/2, 2*np.pi]
-custom_tick_labels = ['$0$', '$\pi/2$', '$\pi$', '$3\pi/2$', '$2\pi$']
+custom_tick_labels = [r'$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']
 ax4.set_xticks(custom_ticks)
 ax4.set_xticklabels(custom_tick_labels)
 plt.legend()
-
-
-#Calculate avg  percent error [2D_AZ]
-AvgError2D_El = (el - el_denser)
-AvgError2D_El = AvgError2D_El ** 2
-AvgError2D_El = np.mean(AvgError2D_El)      
-print(AvgError2D_El)
-
 
 #Compare original and 3D [Elevation]
 el_2d_cartesian2, ax5 = plt.subplots()
 plt.plot(theta, el, label = "Original Data")
 plt.plot(theta_up, el_post3d, label = "3D Interpolation")
-plt.title('Rectangular Raidiation Plot (Elevation)')
+plt.title('Rectangular Radiation Plot (Elevation)')
 plt.xlabel('Angle [rad]')
 plt.ylabel('Normalized Gain [dBi]')
 custom_ticks = [0, np.pi/2, np.pi, (3*np.pi)/2, 2*np.pi]
-custom_tick_labels = ['$0$', '$\pi/2$', '$\pi$', '$3\pi/2$', '$2\pi$']
+custom_tick_labels = [r'$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']
 ax5.set_xticks(custom_ticks)
 ax5.set_xticklabels(custom_tick_labels)
 plt.legend()
 
+#-----------------------------Calculate Error-----------------------------
 
-#Calculate avg  percent error [3D_AZ]
+#Calculate error [2D_AZ]
+AvgError2D_Az = (az - az_denser)        #Calculate difference
+AvgError2D_Az = AvgError2D_Az ** 2      #Square
+AvgError2D_Az = np.mean(AvgError2D_Az)  #Average
+print(f"Mean Sq. Error from 2D interpolation (Azimuth): {AvgError2D_Az}")
+
+#Calculate error [2D_El]
+AvgError2D_El = (el - el_denser)
+AvgError2D_El = AvgError2D_El ** 2
+AvgError2D_El = np.mean(AvgError2D_El)      
+print(f"Mean Sq. Error from 2D interpolation (Elevation): {AvgError2D_El}")
+
+#Calculate error [3D_AZ]
+AvgError3D_Az = (az - az_post3d)
+AvgError3D_Az = AvgError3D_Az ** 2
+AvgError3D_Az = np.mean(AvgError3D_Az)
+print(f"Mean Sq. Error from 3D interpolation (Azimuth): {AvgError3D_Az}")
+
+#Calculate error [3D_El]
 AvgError3D_El = (el - el_post3d)
 AvgError3D_El = AvgError3D_El ** 2
 AvgError3D_El = np.mean(AvgError3D_El)
-print(AvgError3D_El)
+print(f"Mean Sq. Error from 3D interpolation (Elevation): {AvgError3D_El}")
 
+#-----------------------------Coalesce Graphs-----------------------------
 
-#-----------------------------COALATE GRAPHS-----------------------------
-    #Polar Graphs
 root = tk.Tk()
-root.title('Antenna Pattern Data, Polar')
+root.withdraw()
+windows = []
+
+def check_and_close(window):
+    if window in windows:
+        windows.remove(window)
+        window.destroy()
+    if not windows:
+        root.quit()
+        root.destroy()
+
+#Polar Graphs
+polar_window = tk.Toplevel()
+polar_window.title('Principal Antenna Pattern Slices, Polar')
+polar_window.protocol("WM_DELETE_WINDOW", lambda w=polar_window: check_and_close(w))
+windows.append(polar_window)
     
-#original resolution, 1 deg increments
-canvas_polar1 = FigureCanvasTkAgg(az2d, master=root)
+    #original resolution, 1 deg increments
+canvas_polar1 = FigureCanvasTkAgg(az2d, master=polar_window)
 canvas_polar1.get_tk_widget().grid(row=0, column=0)
-canvas_polar2 = FigureCanvasTkAgg(el2d, master=root)
+canvas_polar2 = FigureCanvasTkAgg(el2d, master=polar_window)
 canvas_polar2.get_tk_widget().grid(row=1, column=0)
 
-#sampled resolution, 10 deg increments
-canvas_polar3 = FigureCanvasTkAgg(samp_az2d, master=root)
+    #sampled resolution, 10 deg increments
+canvas_polar3 = FigureCanvasTkAgg(samp_az2d, master=polar_window)
 canvas_polar3.get_tk_widget().grid(row=0, column=1)
-canvas_polar4 = FigureCanvasTkAgg(samp_el2d, master=root)
+canvas_polar4 = FigureCanvasTkAgg(samp_el2d, master=polar_window)
 canvas_polar4.get_tk_widget().grid(row=1, column=1)
 
-#interpolated resolution, 1 deg increments
-canvas_polar5 = FigureCanvasTkAgg(intp_az2d, master=root)
+    #interpolated resolution, 1 deg increments
+canvas_polar5 = FigureCanvasTkAgg(intp_az2d, master=polar_window)
 canvas_polar5.get_tk_widget().grid(row=0, column=2)
-canvas_polar6 = FigureCanvasTkAgg(intp_el2d, master=root)
+canvas_polar6 = FigureCanvasTkAgg(intp_el2d, master=polar_window)
 canvas_polar6.get_tk_widget().grid(row=1, column=2)
 
-    #Cartesian 3D Graph
-root = tk.Tk()
-root.title(name)
-canvas_3d2 = FigureCanvasTkAgg(fig, master=root)
-canvas_3d2.get_tk_widget().grid()#row=0, column=0, rowspan=10, columnspan=10)
+#3D Graph
+cartesian_window = tk.Toplevel()
+cartesian_window.title(name)
+cartesian_window.protocol("WM_DELETE_WINDOW", lambda w=cartesian_window: check_and_close(w))
+windows.append(cartesian_window)
+canvas_3d2 = FigureCanvasTkAgg(fig, master=cartesian_window)
+canvas_3d2.get_tk_widget().grid()
 
-    #Graph Error
-root = tk.Tk()
-root.title('Antenna Pattern Data, Error')
-canvas_cartesian1 = FigureCanvasTkAgg(az_2d_cartesian1, master=root)
+# Error Graphs
+error_window = tk.Toplevel()
+error_window.title('Antenna Pattern Data, Error')
+error_window.protocol("WM_DELETE_WINDOW", lambda w=error_window: check_and_close(w))
+windows.append(error_window)
+canvas_cartesian1 = FigureCanvasTkAgg(az_2d_cartesian1, master=error_window)
 canvas_cartesian1.get_tk_widget().grid(row=0, column=0)
-canvas_cartesian2 = FigureCanvasTkAgg(az_2d_cartesian2, master=root)
+canvas_cartesian2 = FigureCanvasTkAgg(az_2d_cartesian2, master=error_window)
 canvas_cartesian2.get_tk_widget().grid(row=0, column=1)
-canvas_cartesian3 = FigureCanvasTkAgg(el_2d_cartesian1, master=root)
+canvas_cartesian3 = FigureCanvasTkAgg(el_2d_cartesian1, master=error_window)
 canvas_cartesian3.get_tk_widget().grid(row=1, column=0)
-canvas_cartesian4 = FigureCanvasTkAgg(el_2d_cartesian2, master=root)
+canvas_cartesian4 = FigureCanvasTkAgg(el_2d_cartesian2, master=error_window)
 canvas_cartesian4.get_tk_widget().grid(row=1, column=1)
 
-    #display
+# Display
 root.mainloop()
