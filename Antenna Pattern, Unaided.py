@@ -203,7 +203,7 @@ def plot_antenna_pattern(az_gain,el_gain,method):
          g,az,el = hybrid_algorithm(az_gain,el_gain)
          name='Antenna Pattern Data, 3D [Hybrid Algorithim]'
     else:
-         raise Exception("Choose a valid method: 'summing', 'approx', 'hybrid', or leave that field blank")
+         raise Exception("Choose a valid method: 'summing', 'approx',or 'hybrid'")
     
     x,y,z,gain = spherical_to_cartesian(az,el,g)
     
@@ -211,8 +211,17 @@ def plot_antenna_pattern(az_gain,el_gain,method):
 
 
 #-----------------------------RUN SCRIPT-----------------------------
-g, x, y, z, name = plot_antenna_pattern(az_denser,el_denser,'summing') #NOTE: Pick method here
-print(f"Interpolation Method selected: {name}")
+while True:
+    try:
+        InterpolationMethod = input("Select one of the three interpolation methods: 'summing', 'approx', or 'hybrid': ").strip().lower()
+        if InterpolationMethod not in ['summing', 'approx', 'hybrid']:
+            raise ValueError("Invalid interpolation method selected.")
+        print(f"Interpolation Method selected: {InterpolationMethod}")
+        break  # Exit the loop if input is valid
+    except ValueError as e:
+        print(f"Error: {e} Please try again.\n")
+
+g, x, y, z, name = plot_antenna_pattern(az_denser,el_denser,InterpolationMethod) #NOTE: Pick method here
 az_post3d = g[:,0] #Azimuthal slice at elevation = 0deg
 el_post3d = np.array(list(g[0,:])+list(np.flipud(g[359,:])))
 
