@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import interp1d
 import tkinter as tk
+import tkinter as tk
+from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 #-----------------------------ORIGINAL DATA-----------------------------
@@ -311,64 +313,50 @@ AvgError3D_El = np.mean(AvgError3D_El)
 print(f"Mean Sq. Error from 3D interpolation (Elevation): {AvgError3D_El}")
 
 #-----------------------------Coalesce Graphs-----------------------------
-
 root = tk.Tk()
-root.withdraw()
-windows = []
+root.title("Antenna Pattern Analysis")
+root.geometry("800x800")
 
-def check_and_close(window):
-    if window in windows:
-        windows.remove(window)
-        window.destroy()
-    if not windows:
-        root.quit()
-        root.destroy()
+n = ttk.Notebook(root)
+f1 = ttk.Frame(n)
+f2 = ttk.Frame(n)
+f3 = ttk.Frame(n) 
 
-#Polar Graphs
-polar_window = tk.Toplevel()
-polar_window.title('Principal Antenna Pattern Slices, Polar')
-polar_window.protocol("WM_DELETE_WINDOW", lambda w=polar_window: check_and_close(w))
-windows.append(polar_window)
-    
-    #original resolution, 1 deg increments
-canvas_polar1 = FigureCanvasTkAgg(az2d, master=polar_window)
+n.add(f1, text='Polar Graphs')
+n.add(f3, text='Error Graphs')
+n.add(f2, text='3D Graph')
+n.pack(fill="both", expand=True)
+
+# Polar Graphs Tab
+canvas_polar1 = FigureCanvasTkAgg(az2d, master=f1)
 canvas_polar1.get_tk_widget().grid(row=0, column=0)
-canvas_polar2 = FigureCanvasTkAgg(el2d, master=polar_window)
+canvas_polar2 = FigureCanvasTkAgg(el2d, master=f1)
 canvas_polar2.get_tk_widget().grid(row=1, column=0)
 
-    #sampled resolution, 10 deg increments
-canvas_polar3 = FigureCanvasTkAgg(samp_az2d, master=polar_window)
+canvas_polar3 = FigureCanvasTkAgg(samp_az2d, master=f1)
 canvas_polar3.get_tk_widget().grid(row=0, column=1)
-canvas_polar4 = FigureCanvasTkAgg(samp_el2d, master=polar_window)
+canvas_polar4 = FigureCanvasTkAgg(samp_el2d, master=f1)
 canvas_polar4.get_tk_widget().grid(row=1, column=1)
-
-    #interpolated resolution, 1 deg increments
-canvas_polar5 = FigureCanvasTkAgg(intp_az2d, master=polar_window)
+canvas_polar5 = FigureCanvasTkAgg(intp_az2d, master=f1)
 canvas_polar5.get_tk_widget().grid(row=0, column=2)
-canvas_polar6 = FigureCanvasTkAgg(intp_el2d, master=polar_window)
+canvas_polar6 = FigureCanvasTkAgg(intp_el2d, master=f1)
 canvas_polar6.get_tk_widget().grid(row=1, column=2)
 
-#3D Graph
-cartesian_window = tk.Toplevel()
-cartesian_window.title(name)
-cartesian_window.protocol("WM_DELETE_WINDOW", lambda w=cartesian_window: check_and_close(w))
-windows.append(cartesian_window)
-canvas_3d2 = FigureCanvasTkAgg(fig, master=cartesian_window)
-canvas_3d2.get_tk_widget().grid()
+# 3D Graph Tab
+canvas_3d2 = FigureCanvasTkAgg(fig, master=f2)
+canvas_3d2.get_tk_widget().grid(row=0, column=0)
+canvas_3d2.get_tk_widget().config(width=800, height=600)
 
-# Error Graphs
-error_window = tk.Toplevel()
-error_window.title('Antenna Pattern Data, Error')
-error_window.protocol("WM_DELETE_WINDOW", lambda w=error_window: check_and_close(w))
-windows.append(error_window)
-canvas_cartesian1 = FigureCanvasTkAgg(az_2d_cartesian1, master=error_window)
+# Error Graphs Tab
+canvas_cartesian1 = FigureCanvasTkAgg(az_2d_cartesian1, master=f3)
 canvas_cartesian1.get_tk_widget().grid(row=0, column=0)
-canvas_cartesian2 = FigureCanvasTkAgg(az_2d_cartesian2, master=error_window)
+canvas_cartesian2 = FigureCanvasTkAgg(az_2d_cartesian2, master=f3)
 canvas_cartesian2.get_tk_widget().grid(row=0, column=1)
-canvas_cartesian3 = FigureCanvasTkAgg(el_2d_cartesian1, master=error_window)
+canvas_cartesian3 = FigureCanvasTkAgg(el_2d_cartesian1, master=f3)
 canvas_cartesian3.get_tk_widget().grid(row=1, column=0)
-canvas_cartesian4 = FigureCanvasTkAgg(el_2d_cartesian2, master=error_window)
+canvas_cartesian4 = FigureCanvasTkAgg(el_2d_cartesian2, master=f3)
 canvas_cartesian4.get_tk_widget().grid(row=1, column=1)
 
-# Display
 root.mainloop()
+
+root.quit()
