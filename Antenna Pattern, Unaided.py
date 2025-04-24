@@ -1,9 +1,8 @@
-import matplotlib.pyplot as plt
 import numpy as np
-from scipy.interpolate import interp1d
-import tkinter as tk
 import tkinter as tk
 from tkinter import ttk
+import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 #-----------------------------ORIGINAL DATA-----------------------------
@@ -73,13 +72,15 @@ plt.scatter(sampledtheta, sampledel)
 plt.plot(sampledtheta, sampledel)
 plt.title('Sampled Polar Radiation Plot (Elevation), Normalized Gain [dBi]')
 plt.gca().set_yticklabels([]) 
+
 #-----------------------------2D INTERPOLATION-----------------------------
 
 # Redefine "sampledtheta" array to be evenly spaced
 theta_down = np.linspace(0, 2*np.pi, len(sampledel))
 
 
-# Post-interpolation resolution is a fraction of 360 (e.g. resolution_factor=0.1 gives 36 point resolution, resolution_factor=1 gives 360 point resolution)
+# Post-interpolation resolution is a fraction of 360 
+# e.g. a resolution_factor of 0.1 gives 36 point resolution, resolution_factor=1 gives 360 point resolution)
 resolution_factor = 1
 theta_up = np.linspace(0, 2*np.pi, int(len(el)*resolution_factor))
 
@@ -212,7 +213,8 @@ def plot_antenna_pattern(az_gain,el_gain,method):
     return g, x, y, z, name
 
 
-#-----------------------------RUN SCRIPT-----------------------------
+#-------------------------------RUN SCRIPT-----------------------------
+
 while True:
     try:
         InterpolationMethod = input("Select one of the three interpolation methods: 'summing', 'approx', or 'hybrid': ").strip().lower()
@@ -286,7 +288,7 @@ ax5.set_xticks(custom_ticks)
 ax5.set_xticklabels(custom_tick_labels)
 plt.legend()
 
-#-----------------------------Calculate Error-----------------------------
+#-----------------------------CALCULATE ERROR-----------------------------
 
 #Calculate error [2D_AZ]
 AvgError2D_Az = (az - az_denser)        #Calculate difference
@@ -312,7 +314,7 @@ AvgError3D_El = AvgError3D_El ** 2
 AvgError3D_El = np.mean(AvgError3D_El)
 print(f"Mean Sq. Error from 3D interpolation (Elevation): {AvgError3D_El}")
 
-#-----------------------------Coalesce Graphs-----------------------------
+#----------------------------- DISPLAY GRAPHS------------------------------
 root = tk.Tk()
 root.title("Antenna Pattern Analysis")
 root.geometry("800x800")
