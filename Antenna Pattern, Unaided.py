@@ -45,6 +45,7 @@ plt.title('Polar Radiation Plot (Elevation), Normalized Gain [dBi]')
 plt.gca().set_yticklabels([])
 
 #-----------------------------SAMPLED DATA-----------------------------
+#NOTE: This step only serves to create "representative" data of poor resolution. It should be omitted for real-world applications.
 
 # Sample every ten degrees to purposely degrade resolution
 sampledaz = az[::10]
@@ -74,6 +75,7 @@ plt.title('Sampled Polar Radiation Plot (Elevation), Normalized Gain [dBi]')
 plt.gca().set_yticklabels([]) 
 
 #-----------------------------2D INTERPOLATION-----------------------------
+#NOTE: This step is used to upscale the poor resolution data for 3D interpolation. It can be omitted as needed.
 
 # Redefine "sampledtheta" array to be evenly spaced
 theta_down = np.linspace(0, 2*np.pi, len(sampledel))
