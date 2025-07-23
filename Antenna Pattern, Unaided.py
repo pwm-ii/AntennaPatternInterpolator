@@ -36,12 +36,12 @@ az = np.append(az, temp)
 az2d = plt.figure();
 plt.subplot(projection='polar')
 plt.plot(theta, az)
-plt.title('Polar Radiation Plot (Azimuth), Normalized Gain [dBi]')
+plt.title('Radiation Pattern, Azimuth [dBi]')
 plt.gca().set_yticklabels([])
 el2d = plt.figure();
 plt.subplot(projection='polar')
 plt.plot(theta, el)
-plt.title('Polar Radiation Plot (Elevation), Normalized Gain [dBi]')
+plt.title('Radiation Pattern, Elevation [dBi]')
 plt.gca().set_yticklabels([])
 
 #-----------------------------SAMPLED DATA-----------------------------
@@ -64,13 +64,13 @@ samp_az2d = plt.figure();
 plt.subplot(projection='polar')
 plt.scatter(sampledtheta, sampledaz)
 plt.plot(sampledtheta, sampledaz)
-plt.title('Sampled Polar Radiation Plot (Azimuth), Normalized Gain [dBi]')
+plt.title('Sampled Radiation Pattern, Azimuth [dBi]')
 plt.gca().set_yticklabels([]) 
 samp_el2d = plt.figure();
 plt.subplot(projection='polar')
 plt.scatter(sampledtheta, sampledel)
 plt.plot(sampledtheta, sampledel)
-plt.title('Sampled Polar Radiation Plot (Elevation), Normalized Gain [dBi]')
+plt.title('Sampled Radiation Pattern, Elevation [dBi]')
 plt.gca().set_yticklabels([]) 
 
 #-----------------------------2D INTERPOLATION-----------------------------
@@ -93,12 +93,12 @@ el_denser = interp1d(theta_down, sampledel, kind='cubic', fill_value="extrapolat
 intp_az2d = plt.figure();
 plt.subplot(projection='polar')
 plt.plot(theta_up, az_denser)
-plt.title('Interpolated Polar Radiation Plot (Azimuth), Normalized Gain [dBi]')
+plt.title('Interpolated Radiation Pattern, Azimuth [dBi]')
 plt.gca().set_yticklabels([]) 
 intp_el2d = plt.figure();
 plt.subplot(projection='polar')
 plt.plot(theta_up, el_denser)
-plt.title('Interpolated Polar Radiation Plot (Elevation), Normalized Gain [dBi]')
+plt.title('Interpolated Radiation Pattern, Elevation [dBi]')
 plt.gca().set_yticklabels([]) 
 
 #-----------------------------3D INTERPOLATION-----------------------------
@@ -108,7 +108,7 @@ def summing_algorithm(g_az,g_el):
     azimuth = np.deg2rad(np.arange(0,360,1))
     elevation = np.deg2rad(np.arange(0,180,1))       
     pattern = np.zeros((360,180))
-    
+    '''
     # perform additive scaling to fill 3d gain array:
     for i, az_gain in enumerate(g_az[0:180]):
         for j, el_gain in enumerate(g_el[0:180]):
@@ -118,6 +118,11 @@ def summing_algorithm(g_az,g_el):
         # flip because we want to go from 0 to 180 but the az-el data comes in 360 deg. format
         for j, el_gain in enumerate(np.flipud(g_el[180:360])):
             pattern[i+180, j] = az_gain + el_gain
+    '''
+    
+    #Vectorized Method
+    pattern[:180, :] = g_az[:180, np.newaxis] + g_el[:180]
+    pattern[180:, :] = g_az[180:, np.newaxis] + g_el[180:][::-1]
 
     return pattern, azimuth, elevation
 
@@ -133,6 +138,7 @@ def approx_algorithm(g_az,g_el):
     hor = 10**(np.divide(g_az,10))
     k=2
     
+    '''
     for i, az_gain in enumerate(g_az[0:180]):
         for j, el_gain in enumerate(g_el[0:180]):
             w1 = vert[j] * (1-hor[i])
@@ -141,7 +147,20 @@ def approx_algorithm(g_az,g_el):
                 pattern[i,j] = 0
             else:
                 pattern[i, j] = (az_gain * w1 + el_gain * w2)/(np.sqrt((w1)**k)+(w2)**k)
+    '''
+    hor_1 = hor[:180, np.newaxis]  # shape (180,1)
+    vert_1 = vert[:180]            # shape (180,)
+    
+    w1_1 = vert_1 * (1 - hor_1)
+    w2_1 = hor_1 * (1 - vert_1)
+    
+    numerator_1 = g_az[:180, np.newaxis] * w1_1 + g_el[:180] * w2_1
+    denominator_1 = np.sqrt(w1_1 ** k) + w2_1 ** k
+    
+    mask_1 = (w1_1 == 0) & (w2_1 == 0)
+    pattern[:180, :] = np.where(mask_1, 0, numerator_1 / denominator_1)
 
+    '''
     for i, az_gain in enumerate(g_az[180:360]):
         # flip because we want to go from 0 to 180 but the az-el data comes in 360 deg. format
         for j, el_gain in enumerate(np.flipud(g_el[180:360])):
@@ -151,6 +170,18 @@ def approx_algorithm(g_az,g_el):
                 pattern[i+180,j] = 0
             else:
                 pattern[i+180, j] = (az_gain * w1 + el_gain * w2)/(np.sqrt((w1)**k)+(w2)**k)
+    '''
+    hor_2 = hor[180:, np.newaxis]  # shape (180,1)
+    vert_2 = vert[180:][::-1]      # flipped
+    
+    w1_2 = vert_2 * (1 - hor_2)
+    w2_2 = hor_2 * (1 - vert_2)
+    
+    numerator_2 = g_az[180:, np.newaxis] * w1_2 + g_el[180:][::-1] * w2_2
+    denominator_2 = np.sqrt(w1_2 ** k) + w2_2 ** k
+    
+    mask_2 = (w1_2 == 0) & (w2_2 == 0)
+    pattern[180:, :] = np.where(mask_2, 0, numerator_2 / denominator_2)
 
     return pattern, azimuth, elevation
 
@@ -172,26 +203,34 @@ def hybrid_algorithm(g_az,g_el):
 
     
 
-def spherical_to_cartesian(azimuth,elevation,pattern):
-    # account for normalization For plotting, since 0dB and negative scaling doesn't show up well
-    if np.any(pattern < 0):
-        norm = -np.min(pattern)
-    else: 
-        norm = 0
-    
+def spherical_to_cartesian(azimuth, elevation, pattern):
+    # Normalize for plotting (shift pattern so minimum is 0)
+    norm = -np.min(pattern) if np.any(pattern < 0) else 0
+    gain = pattern + norm  # shape (360, 180)
+
+    # Vectorized
+    #az_grid, el_grid = np.meshgrid(azimuth, elevation, indexing='ij')  # shape: (360, 180)
+    el_grid, az_grid = np.meshgrid(elevation, azimuth, indexing='xy')
+
+    x = gain * np.sin(el_grid) * np.cos(az_grid)
+    y = gain * np.sin(el_grid) * np.sin(az_grid)
+    z = gain * np.cos(el_grid)
+
+    '''
     x = np.zeros((360,180))
     y = np.zeros((360,180))
     z = np.zeros((360,180))
     gain = np.zeros((360,180))
     
-    for i,az in enumerate(azimuth):
-        for j,el in enumerate(elevation):
-            g = pattern[i,j] + norm
-            x[i,j] = (g*np.sin(el)*np.cos(az))
-            y[i,j] = (g*np.sin(el)*np.sin(az))
-            z[i,j] = g*np.cos(el)
-            gain[i,j] = g
-            
+    for i, az in enumerate(azimuth):
+         for j, el in enumerate(elevation):
+             g = pattern[i, j] + norm
+             x[i, j] = g * np.sin(el) * np.cos(az)
+             y[i, j] = g * np.sin(el) * np.sin(az)
+             z[i, j] = g * np.cos(el)
+             gain[i, j] = g
+    '''
+
     return x, y, z, gain
             
 
@@ -227,7 +266,9 @@ while True:
 
 g, x, y, z, name = plot_antenna_pattern(az_denser,el_denser,InterpolationMethod) #NOTE: Pick method here
 az_post3d = g[:,0] #Azimuthal slice at elevation = 0deg
-el_post3d = np.array(list(g[0,:])+list(np.flipud(g[359,:])))
+
+#el_post3d = np.array(list(g[0,:])+list(np.flipud(g[359,:])))
+el_post3d = np.concatenate((g[0, :], np.flipud(g[359, :])))
 
 #Plot 3D Graph after interpolation
 fig = plt.figure()
@@ -240,7 +281,7 @@ plt.axis('off')
 az_2d_cartesian1, ax2 = plt.subplots()
 plt.plot(theta, az, label = "Original")
 plt.plot(theta_up, az_denser, label = "2D Interpolation")
-plt.title('Rectangular Radiation Plot (Azimuth)')
+plt.title('Radiation Pattern, Azimuth (Rectangular)')
 plt.xlabel('Angle [rad]')
 plt.ylabel('Normalized Gain [dBi]')
 custom_ticks = [0, np.pi/2, np.pi, (3*np.pi)/2, 2*np.pi]
@@ -253,7 +294,7 @@ plt.legend()
 az_2d_cartesian2, ax3 = plt.subplots()
 plt.plot(theta, az, label = "Original")
 plt.plot(theta, az_post3d, label = "3D Interpolation")
-plt.title('Rectangular Radiation Plot (Azimuth)')
+plt.title('Radiation Pattern, Azimuth (Rectangular)')
 plt.xlabel('Angle [rad]')
 plt.ylabel('Normalized Gain [dBi]')
 custom_ticks = [0, np.pi/2, np.pi, (3*np.pi)/2, 2*np.pi]
@@ -266,7 +307,7 @@ plt.legend()
 el_2d_cartesian1, ax4 = plt.subplots()
 plt.plot(theta, el, label = "Original Data")
 plt.plot(theta_up, el_denser, label = "2D Interpolation")
-plt.title('Rectangular Radiation Plot (Elevation)')
+plt.title('Radiation Pattern, Elevation (Rectangular)')
 plt.xlabel('Angle [rad]')
 plt.ylabel('Normalized Gain [dBi]')
 custom_ticks = [0, np.pi/2, np.pi, (3*np.pi)/2, 2*np.pi]
@@ -279,7 +320,7 @@ plt.legend()
 el_2d_cartesian2, ax5 = plt.subplots()
 plt.plot(theta, el, label = "Original Data")
 plt.plot(theta_up, el_post3d, label = "3D Interpolation")
-plt.title('Rectangular Radiation Plot (Elevation)')
+plt.title('Radiation Pattern, Elevation (Rectangular)')
 plt.xlabel('Angle [rad]')
 plt.ylabel('Normalized Gain [dBi]')
 custom_ticks = [0, np.pi/2, np.pi, (3*np.pi)/2, 2*np.pi]
@@ -314,93 +355,57 @@ AvgError3D_El = AvgError3D_El ** 2
 AvgError3D_El = np.mean(AvgError3D_El)
 print(f"Mean Sq. Error from 3D interpolation (Elevation): {AvgError3D_El}")
 
-#----------------------------- DISPLAY GRAPHS------------------------------
-# Initialize the Main Window
+# ----------------------------- DISPLAY GRAPHS -----------------------------
 root = tk.Tk()
+root.attributes('-topmost', True)
 root.title("Antenna Pattern Analysis")
-root.geometry("1280x720")  # Fixed window size
+root.geometry("1280x720")
+root.resizable(False, False)
 
-# Create Notebook and Tabs (Frames for different sections)
 n = ttk.Notebook(root)
-
-# Create frames (tabs) for different sections of the analysis
-f1 = ttk.Frame(n)  # Original
-f2 = ttk.Frame(n)  # 3D Graph
-f3 = ttk.Frame(n)  # Error Graphs
-f4 = ttk.Frame(n)  # Sampled
-f5 = ttk.Frame(n)  # Interpolated
-
-# Add tabs to the notebook
+f1, f2, f4, f5, f6, f7 = [ttk.Frame(n) for _ in range(6)]
 n.add(f1, text='Original')
 n.add(f4, text='Sampled')
 n.add(f5, text='Interpolated')
 n.add(f2, text='3D Graph')
-n.add(f3, text='Error Graphs')
-
-# Display the notebook inside the main window
+n.add(f6, text='2D Error')
+n.add(f7, text='3D Error')
 n.pack(fill="both", expand=True)
 
-# Resize Frames to Fill the Window
-# Set each frame to resize proportionally with the window
-f1.grid_rowconfigure(0, weight=1)
-f1.grid_columnconfigure(0, weight=1)
-f1.grid_columnconfigure(1, weight=1)
+for frame in [f1, f2, f4, f5, f6, f7]:
+    for r in range(2):
+        frame.grid_rowconfigure(r, weight=1)
+    for c in range(2):
+        frame.grid_columnconfigure(c, weight=1)
 
-f2.grid_rowconfigure(0, weight=1)
-f2.grid_columnconfigure(0, weight=1)
-
-f3.grid_rowconfigure(0, weight=1)
-f3.grid_rowconfigure(1, weight=1)
-f3.grid_columnconfigure(0, weight=1)
-f3.grid_columnconfigure(1, weight=1)
-
-f4.grid_rowconfigure(0, weight=1)
-f4.grid_columnconfigure(0, weight=1)
-f4.grid_columnconfigure(1, weight=1)
-
-f5.grid_rowconfigure(0, weight=1)
-f5.grid_columnconfigure(0, weight=1)
-f5.grid_columnconfigure(1, weight=1)
-
-# Set Up Canvases for Different Tabs (Graphs)
-# **Original Tab (Polar Graphs)**
 canvas_polar1 = FigureCanvasTkAgg(az2d, master=f1)
 canvas_polar1.get_tk_widget().grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-
 canvas_polar2 = FigureCanvasTkAgg(el2d, master=f1)
 canvas_polar2.get_tk_widget().grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
-# **Sampled Tab (Polar Graphs)**
 canvas_polar3 = FigureCanvasTkAgg(samp_az2d, master=f4)
 canvas_polar3.get_tk_widget().grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-
 canvas_polar4 = FigureCanvasTkAgg(samp_el2d, master=f4)
 canvas_polar4.get_tk_widget().grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
-# **Interpolated Tab (Polar Graphs)**
 canvas_polar5 = FigureCanvasTkAgg(intp_az2d, master=f5)
 canvas_polar5.get_tk_widget().grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-
 canvas_polar6 = FigureCanvasTkAgg(intp_el2d, master=f5)
 canvas_polar6.get_tk_widget().grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
-# **3D Graph Tab**
 canvas_3d2 = FigureCanvasTkAgg(fig, master=f2)
 canvas_3d2.get_tk_widget().grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
 
-# **Error Graphs Tab (Cartesian Graphs)**
-canvas_cartesian1 = FigureCanvasTkAgg(az_2d_cartesian1, master=f3)
+canvas_cartesian1 = FigureCanvasTkAgg(az_2d_cartesian1, master=f6)
 canvas_cartesian1.get_tk_widget().grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+canvas_cartesian3 = FigureCanvasTkAgg(el_2d_cartesian1, master=f6)
+canvas_cartesian3.get_tk_widget().grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
-canvas_cartesian2 = FigureCanvasTkAgg(az_2d_cartesian2, master=f3)
-canvas_cartesian2.get_tk_widget().grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
-
-canvas_cartesian3 = FigureCanvasTkAgg(el_2d_cartesian1, master=f3)
-canvas_cartesian3.get_tk_widget().grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
-
-canvas_cartesian4 = FigureCanvasTkAgg(el_2d_cartesian2, master=f3)
-canvas_cartesian4.get_tk_widget().grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
+canvas_cartesian2 = FigureCanvasTkAgg(az_2d_cartesian2, master=f7)
+canvas_cartesian2.get_tk_widget().grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+canvas_cartesian4 = FigureCanvasTkAgg(el_2d_cartesian2, master=f7)
+canvas_cartesian4.get_tk_widget().grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
 root.mainloop()
-
 root.quit()
+
