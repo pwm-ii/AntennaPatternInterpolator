@@ -45,6 +45,7 @@ plt.title('Radiation Pattern, Elevation [dBi]')
 plt.gca().set_yticklabels([])
 
 #-----------------------------SAMPLED DATA-----------------------------
+#NOTE: This step only serves to create "representative" data of poor resolution. It should be omitted for real-world applications.
 
 # Sample every ten degrees to purposely degrade resolution
 sampledaz = az[::10]
@@ -74,6 +75,7 @@ plt.title('Sampled Radiation Pattern, Elevation [dBi]')
 plt.gca().set_yticklabels([]) 
 
 #-----------------------------2D INTERPOLATION-----------------------------
+#NOTE: This step is used to upscale the poor resolution data for 3D interpolation. It can be omitted as needed.
 
 # Redefine "sampledtheta" array to be evenly spaced
 theta_down = np.linspace(0, 2*np.pi, len(sampledel))
@@ -408,4 +410,3 @@ canvas_cartesian4.get_tk_widget().grid(row=0, column=1, padx=5, pady=5, sticky="
 
 root.mainloop()
 root.quit()
-
