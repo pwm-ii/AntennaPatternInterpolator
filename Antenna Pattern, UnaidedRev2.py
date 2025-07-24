@@ -38,11 +38,7 @@ sampledel = np.append(el[::10], el[0])
 sampledtheta = np.linspace(0, 2 * np.pi, len(sampledaz), endpoint=True)
 
 #-----------------------------2D INTERPOLATION-----------------------------
-resolution_factor = 1
-theta_up = np.linspace(0, 2*np.pi, int(len(el)*resolution_factor))
-#this defines the resolution after interpolation as a fraction of 360
-# e.g. a resolution_factor of 0.1 gives 36 point resolution, resolution_factor=1 gives 360 point resolution)
-
+theta_up = theta
 az_denser = interp1d(sampledtheta, sampledaz, kind='cubic', fill_value='extrapolate')(theta_up)
 el_denser = interp1d(sampledtheta, sampledel, kind='cubic', fill_value='extrapolate')(theta_up)
 
