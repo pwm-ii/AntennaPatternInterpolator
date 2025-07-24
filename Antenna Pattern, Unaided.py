@@ -6,8 +6,7 @@ from scipy.interpolate import interp1d
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 #-----------------------------ORIGINAL DATA-----------------------------
-
-#Import antenna pattern
+#Import Antenna Pattern
 try:
     with open('U7-Outdoor-5GHz.ant', 'r', encoding='utf16') as antenna_file:
         antenna_data = antenna_file.readlines()
@@ -31,19 +30,6 @@ temp = az[0:90]
 az = az[90:]
 az = np.append(az, temp)
 
-
-#graph azimuth/elevation from original data
-az2d = plt.figure();
-plt.subplot(projection='polar')
-plt.plot(theta, az)
-plt.title('Radiation Pattern, Azimuth [dBi]')
-plt.gca().set_yticklabels([])
-el2d = plt.figure();
-plt.subplot(projection='polar')
-plt.plot(theta, el)
-plt.title('Radiation Pattern, Elevation [dBi]')
-plt.gca().set_yticklabels([])
-
 #-----------------------------SAMPLED DATA-----------------------------
 #NOTE: This step only serves to create "representative" data of poor resolution. It should be omitted for real-world applications.
 
@@ -57,8 +43,21 @@ if sampledaz[0] != sampledaz[-1]:
     sampledaz = np.append(sampledaz, sampledaz[0])
     sampledtheta = np.append(sampledtheta, sampledtheta[0])
     
-if sampledel[0] != sampledel[-1]:
-    sampledel = np.append(sampledel, sampledel[0])
+sampledaz = np.append(az[::10], az[0])
+sampledel = np.append(el[::10], el[0])
+sampledtheta = np.linspace(0, 2 * np.pi, len(sampledaz), endpoint=True)
+
+#graph azimuth/elevation from original data
+az2d = plt.figure();
+plt.subplot(projection='polar')
+plt.plot(theta, az)
+plt.title('Radiation Pattern, Azimuth [dBi]')
+plt.gca().set_yticklabels([])
+el2d = plt.figure();
+plt.subplot(projection='polar')
+plt.plot(theta, el)
+plt.title('Radiation Pattern, Elevation [dBi]')
+plt.gca().set_yticklabels([])
 
 #graph azimuth/elevation from sampled data
 samp_az2d = plt.figure();
@@ -127,6 +126,8 @@ def summing_algorithm(g_az,g_el):
     pattern[180:, :] = g_az[180:, np.newaxis] + g_el[180:][::-1]
 
     return pattern, azimuth, elevation
+
+#-----------------------------FUNCTIONS-----------------------------
 
 def approx_algorithm(g_az,g_el):
     # create the angle coordinates necessary for polar plotting:
