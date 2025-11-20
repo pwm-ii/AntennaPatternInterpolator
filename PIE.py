@@ -1,14 +1,14 @@
 # =============================================================================
 #
-#   ██████╗ ██╗███████╗
-#   ██╔══██╗██║██╔════╝
-#   ██████╔╝██║█████╗  
-#   ██╔═══╝ ██║██╔══╝  
-#   ██║     ██║███████╗
-#   ╚═╝     ╚═╝╚══════╝
+#   ██████╗ ██╗███████╗
+#   ██╔══██╗██║██╔════╝
+#   ██████╔╝██║█████╗  
+#   ██╔═══╝ ██║██╔══╝  
+#   ██║     ██║███████╗
+#   ╚═╝     ╚═╝╚══════╝
 #
-#   PAUL'S INTERPOLATION ENGINE
-#   (REV 3.1)
+#   PAUL'S INTERPOLATION ENGINE
+#   (REV 3.2)
 # =============================================================================
 
 import os
@@ -179,16 +179,23 @@ class AntennaModel:
         hor = 10**(g_az/10)
         k = 2
         
-        def calc_segment(h_slice, v_slice):
-            w1 = v_slice * (1 - h_slice[:, np.newaxis])
-            w2 = h_slice[:, np.newaxis] * (1 - v_slice)
-            num = h_slice[:, np.newaxis] * w1 + v_slice * w2
+        def calc_segment(db_h, lin_h, db_v, lin_v):
+            # w1 = vertical_linear * (1 - horizontal_linear)
+            w1 = lin_v * (1 - lin_h[:, np.newaxis])
+            # w2 = horizontal_linear * (1 - vertical_linear)
+            w2 = lin_h[:, np.newaxis] * (1 - lin_v)
+            
+            # num = horizontal_dB * w1 + vertical_dB * w2
+            num = db_h[:, np.newaxis] * w1 + db_v * w2
             den = np.sqrt(w1**k) + w2**k
             mask = (w1 == 0) & (w2 == 0)
             return np.where(mask, 0, num/den)
 
-        pattern[:180, :] = calc_segment(g_az[:180], vert[:180])
-        pattern[180:, :] = calc_segment(g_az[180:], vert[180:][::-1])
+        # First half: 0 to 180
+        pattern[:180, :] = calc_segment(g_az[:180], hor[:180], g_el[:180], vert[:180])
+        
+        # Second half: 180 to 360 (Elevation reversed)
+        pattern[180:, :] = calc_segment(g_az[180:], hor[180:], g_el[180:][::-1], vert[180:][::-1])
         return pattern
 
     def _algo_hybrid(self, g_az, g_el):
@@ -332,12 +339,12 @@ class ResultsWindow:
         p1 = PlotPanel(frame, "Raw Azimuth Samples [dBi]", projection='polar')
         p1.grid(row=0, column=0, sticky="nsew")
         # Plot using dots ('.') to emphasize this is sampled/raw data, not interpolated
-        p1.ax.plot(self.model.raw_theta_az, self.model.raw_az, color='r', marker='.', linestyle='-', linewidth=0.5, label='Raw Az')
+        p1.ax.plot(self.model.raw_theta_az, self.model.raw_az, color='g', marker='.', linestyle='-', linewidth=0.5, label='Raw Az')
         
         # Elevation Plot
         p2 = PlotPanel(frame, "Raw Elevation Samples [dBi]", projection='polar')
         p2.grid(row=0, column=1, sticky="nsew")
-        p2.ax.plot(self.model.raw_theta_el, self.model.raw_el, color='r', marker='.', linestyle='-', linewidth=0.5, label='Raw El')
+        p2.ax.plot(self.model.raw_theta_el, self.model.raw_el, color='g', marker='.', linestyle='-', linewidth=0.5, label='Raw El')
 
     def _init_tab_input(self):
         """Tab 1: Input Visualization (2D Polar)"""
