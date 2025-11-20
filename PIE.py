@@ -1,16 +1,18 @@
+'''
+# =========================================================================== #
+#   It's as easy as...                                                        #
+#                                                                             #
+#   ██████╗ ██╗███████╗                                                       #
+#   ██╔══██╗██║██╔════╝                                                       #
+#   ██████╔╝██║█████╗                                                         #
+#   ██╔═══╝ ██║██╔══╝                                                         #
+#   ██║     ██║███████╗                                                       #
+#   ╚═╝     ╚═╝╚══════╝                                                       #
+#                                                                             #
+#   PAUL'S INTERPOLATION ENGINE                                               #
+#   (REV 3.2)                                                                 #
 # =============================================================================
-#
-#   ██████╗ ██╗███████╗
-#   ██╔══██╗██║██╔════╝
-#   ██████╔╝██║█████╗  
-#   ██╔═══╝ ██║██╔══╝  
-#   ██║     ██║███████╗
-#   ╚═╝     ╚═╝╚══════╝
-#
-#   PAUL'S INTERPOLATION ENGINE
-#   (REV 3.2)
-# =============================================================================
-
+'''
 import os
 import sys
 import numpy as np
@@ -33,12 +35,12 @@ class AntennaModel:
         # Raw Data Containers
         self.raw_az = None
         self.raw_el = None
-        self.raw_theta_az = None # Angles for raw data
-        self.raw_theta_el = None # Angles for raw data
+        self.raw_theta_az = None
+        self.raw_theta_el = None
         
-        # Normalized Containers
-        self.az_norm = None # Normalized to 1 degree steps
-        self.el_norm = None # Normalized to 1 degree steps
+        # Normalized Data Containers (normalzied to 1deg steps)
+        self.az_norm = None
+        self.el_norm = None
         self.theta_norm = np.deg2rad(np.arange(0, 360, 1))
         
         # State
@@ -80,7 +82,8 @@ class AntennaModel:
             
             # --- OPTIONAL: AUTO-CENTERING ---
             if do_autocenter:
-                # Shift raw data so max peak is at index 0
+                # Shift raw data so max peak (which I am interpreting as main lobe) is at index 0
+                # !!DO NOT USE IF PEAK OF AZIMUTH AND ELEVATION ARE NOT MEANT TO BE ALLIGNED!!
                 if len(self.raw_az) > 0:
                     shift_az = -np.argmax(self.raw_az)
                     self.raw_az = np.roll(self.raw_az, shift_az)
@@ -90,6 +93,7 @@ class AntennaModel:
                     self.raw_el = np.roll(self.raw_el, shift_el)
             
             # --- OPTIONAL: LOOP CLOSURE ---
+            # This is to help with exceptionally poor quality antenna resolution
             if do_loop_closure:
                 # If the first and last values do not match, append the first to the end.
                 if len(self.raw_az) > 0 and self.raw_az[0] != self.raw_az[-1]:
