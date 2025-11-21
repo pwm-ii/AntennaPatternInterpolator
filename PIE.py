@@ -28,7 +28,7 @@ from matplotlib import cm
 
 
 # ==========================================
-# Data Handling / Interpolation Algorithims
+# Data Handling / Interpolation
 # ==========================================
 
 class AntennaModel:
@@ -441,8 +441,7 @@ class ResultsWindow:
         txt = (f"Method: {self.model.method_name}\n"
                f"----------------------------\n"
                f"Azimuth MSE: {mse_az:.4f}\n"
-               f"Elevation MSE: {mse_el:.4f}\n"
-               f"(Lower Mean Sq. Error indicates better reconstruction fidelity)")
+               f"Elevation MSE: {mse_el:.4f}\n")
         
         lbl = ttk.Label(stats_frame, text=txt, font=("Courier", 12), justify="center")
         lbl.pack(pady=10)
@@ -463,7 +462,6 @@ def main():
     if not confirmed:
         print("--------------------------")
         print("Analysis cancelled.")
-        print("--------------------------")
         sys.exit()
 
     # 2. Initialize Model & Process Data
@@ -473,14 +471,12 @@ def main():
         print("--------------------------")
         print(f"Loading: {filepath}...")
         print(f"Settings: Auto-Center={do_center}, Loop-Closure={do_loop}")
-        print("--------------------------")
         
         # PASS FLAGS TO LOAD_DATA
         model.load_data(filepath, do_center, do_loop)
         
         print("--------------------------")
         print(f"Running {method} Interpolation...")
-        print("--------------------------")
         model.run_interpolation(method)
         
     except Exception as e:
