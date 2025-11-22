@@ -11,7 +11,7 @@
 #   ╚═╝     ╚═╝╚══════╝                                       #
 #                                                             #
 #   PAUL'S INTERPOLATION ENGINE                               #
-#   (REV 3.2)                                                 #
+#   (REV 3.3)                                                 #
 #                                                             #
 # =========================================================== #
 '''
@@ -238,9 +238,10 @@ class AntennaModel:
 class PlotPanel(tk.Frame):
     def __init__(self, parent, title, projection=None):
         super().__init__(parent)
-        self.figure = Figure(figsize=(5, 4), dpi=100)
-        
-        # Add subplot with specific projection
+
+        self.figure = Figure(figsize=(5, 3), dpi=100)
+        self.figure.set_tight_layout(True)
+
         if projection == '3d':
             self.ax = self.figure.add_subplot(111, projection='3d')
         elif projection == 'polar':
@@ -256,12 +257,11 @@ class SetupDialog:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Antenna Interpolation Setup")
-        self.root.geometry("500x350") # Increased height for new settings
+        self.root.geometry("500x350")
         
         self.filepath = None
         self.method = tk.StringVar(value="Summing")
         
-        # New Settings Variables
         self.var_autocenter = tk.BooleanVar(value=True)
         self.var_loop_closure = tk.BooleanVar(value=True)
         
@@ -269,27 +269,23 @@ class SetupDialog:
         self._build_ui()
 
     def _build_ui(self):
-        # File Selection
         frame_file = ttk.LabelFrame(self.root, text="Input Data")
         frame_file.pack(fill="x", padx=10, pady=10)
         self.lbl_file = ttk.Label(frame_file, text="No file selected", foreground="gray")
         self.lbl_file.pack(side="left", padx=5, fill='x', expand=True)
         ttk.Button(frame_file, text="Browse...", command=self._browse).pack(side="right", padx=5)
 
-        # Method Selection
         frame_method = ttk.LabelFrame(self.root, text="Interpolation Method")
         frame_method.pack(fill="x", padx=10, pady=5)
         for m in ['Summing', 'Approximation', 'Hybrid']:
             ttk.Radiobutton(frame_method, text=m, variable=self.method, value=m).pack(anchor='w', padx=10)
 
-        # --- NEW SETTINGS SECTION ---
         frame_settings = ttk.LabelFrame(self.root, text="Settings")
         frame_settings.pack(fill="x", padx=10, pady=5)
         
         ttk.Checkbutton(frame_settings, text="Auto-Center Peaks (to 0°)", variable=self.var_autocenter).pack(anchor='w', padx=10)
         ttk.Checkbutton(frame_settings, text="Enforce Loop Closure", variable=self.var_loop_closure).pack(anchor='w', padx=10)
 
-        # Buttons
         btn_frame = ttk.Frame(self.root)
         btn_frame.pack(pady=15)
         ttk.Button(btn_frame, text="Run Interpolation", command=self._on_run).pack(side="left", padx=10)
@@ -311,7 +307,6 @@ class SetupDialog:
 
     def show(self):
         self.root.mainloop()
-        # Return extra settings flags
         return (self.filepath, self.method.get(), 
                 self.var_autocenter.get(), self.var_loop_closure.get(), 
                 self.confirmed)
@@ -327,58 +322,42 @@ class ResultsWindow:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True)
         
-        self._init_tab_raw()   # Added New Tab Init
+        self._init_tab_raw()
         self._init_tab_input()
         self._init_tab_3d()
         self._init_tab_error()
 
     def _init_tab_raw(self):
-        """Tab 0: Raw Input Visualization (Data straight from file)"""
         frame = ttk.Frame(self.notebook)
         self.notebook.add(frame, text='Original (Processed Raw)')
-        
-        # Layout: 1 Row, 2 Columns
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
         frame.rowconfigure(0, weight=1)
 
-        # Azimuth Plot
         p1 = PlotPanel(frame, "Raw Azimuth Samples [dBi]", projection='polar')
         p1.grid(row=0, column=0, sticky="nsew")
-        # Plot using dots ('.') to emphasize this is sampled/raw data, not interpolated
         p1.ax.plot(self.model.raw_theta_az, self.model.raw_az, color='g', marker='.', linestyle='-', linewidth=0.5, label='Raw Az')
         
-        # Elevation Plot
         p2 = PlotPanel(frame, "Raw Elevation Samples [dBi]", projection='polar')
         p2.grid(row=0, column=1, sticky="nsew")
         p2.ax.plot(self.model.raw_theta_el, self.model.raw_el, color='g', marker='.', linestyle='-', linewidth=0.5, label='Raw El')
 
     def _init_tab_input(self):
-        """Tab 1: Input Visualization (2D Polar)"""
         frame = ttk.Frame(self.notebook)
         self.notebook.add(frame, text='Original (Normalized)')
-        
-        # Layout: 1 Row, 2 Columns
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
         frame.rowconfigure(0, weight=1)
 
-        # Azimuth Plot
         p1 = PlotPanel(frame, "Azimuth Cut [dBi]", projection='polar')
         p1.grid(row=0, column=0, sticky="nsew")
         p1.ax.plot(self.model.theta_norm, self.model.az_norm, color='g', label='Input')
         
-        # Elevation Plot
         p2 = PlotPanel(frame, "Elevation Cut [dBi]", projection='polar')
         p2.grid(row=0, column=1, sticky="nsew")
-        # Note: We plot Elevation on 0-360 polar plot for visualization, 
-        # even if physics is 0-180 half-plane usually.
-        
         p2.ax.plot(self.model.theta_norm, self.model.el_norm, color='g', label='Input')
 
-
     def _init_tab_3d(self):
-        """Tab 2: 3D Result"""
         frame = ttk.Frame(self.notebook)
         self.notebook.add(frame, text='3D Pattern')
         frame.columnconfigure(0, weight=1)
@@ -395,48 +374,61 @@ class ResultsWindow:
         p3d.ax.axis('off')
 
     def _init_tab_error(self):
-        """Tab 3: Cartesian Error Cuts"""
+        """Tab 3: Cartesian & Polar Error Cuts (2x2 Grid)"""
         frame = ttk.Frame(self.notebook)
         self.notebook.add(frame, text='Reconstruction Error')
         
+        # Layout: 2 Rows, 2 Columns + 1 Row for Stats
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(0, weight=3) # Plots
-        frame.rowconfigure(1, weight=1) # Text stats
+        frame.rowconfigure(0, weight=3) # Rect Plots
+        frame.rowconfigure(1, weight=3) # Polar Plots
+        frame.rowconfigure(2, weight=1) # Text stats
 
         # Calculate errors
         mse_az, mse_el, az_rec, el_rec = self.model.get_reconstruction_error()
 
-        # Custom X Ticks
         ticks = [0, np.pi/2, np.pi, 3*np.pi/2, 2*np.pi]
         labels = [r'$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']
 
-        # Plot 1: Azimuth Comparison
-        p_az = PlotPanel(frame, "Azimuth Reconstruction Accuracy")
-        p_az.grid(row=0, column=0, sticky="nsew")
+        # --- ROW 0: RECTANGULAR PLOTS ---
         
-        p_az.ax.plot(self.model.theta_norm, self.model.az_norm, 'g:', linewidth=2, label='Original')
-        p_az.ax.plot(self.model.theta_norm, az_rec, 'k', label='Reconstructed')
-        
-        p_az.ax.set_xticks(ticks)
-        p_az.ax.set_xticklabels(labels)
-        p_az.ax.set_ylabel("Gain [dBi]")
-        p_az.ax.legend()
+        # Rect Azimuth
+        p_az_rect = PlotPanel(frame, "Azimuth Error (Rectangular)")
+        p_az_rect.grid(row=0, column=0, sticky="nsew")
+        p_az_rect.ax.plot(self.model.theta_norm, self.model.az_norm, 'g:', linewidth=2, label='Original')
+        p_az_rect.ax.plot(self.model.theta_norm, az_rec, 'k', label='Reconstructed')
+        p_az_rect.ax.set_xticks(ticks)
+        p_az_rect.ax.set_xticklabels(labels)
+        p_az_rect.ax.set_ylabel("Gain [dBi]")
+        p_az_rect.ax.legend()
 
-        # Plot 2: Elevation Comparison
-        p_el = PlotPanel(frame, "Elevation Reconstruction Accuracy")
-        p_el.grid(row=0, column=1, sticky="nsew")
-        
-        p_el.ax.plot(self.model.theta_norm, self.model.el_norm, 'g:', linewidth=2, label='Original')
-        p_el.ax.plot(self.model.theta_norm, el_rec, 'k', label='Reconstructed')
-        
-        p_el.ax.set_xticks(ticks)
-        p_el.ax.set_xticklabels(labels)
-        p_el.ax.legend()
+        # Rect Elevation
+        p_el_rect = PlotPanel(frame, "Elevation Error (Rectangular)")
+        p_el_rect.grid(row=0, column=1, sticky="nsew")
+        p_el_rect.ax.plot(self.model.theta_norm, self.model.el_norm, 'g:', linewidth=2, label='Original')
+        p_el_rect.ax.plot(self.model.theta_norm, el_rec, 'k', label='Reconstructed')
+        p_el_rect.ax.set_xticks(ticks)
+        p_el_rect.ax.set_xticklabels(labels)
+        p_el_rect.ax.legend()
 
-        # Stats Text
+        # --- ROW 1: POLAR PLOTS (New) ---
+
+        # Polar Azimuth
+        p_az_pol = PlotPanel(frame, "Azimuth Error (Polar)", projection='polar')
+        p_az_pol.grid(row=1, column=0, sticky="nsew")
+        p_az_pol.ax.plot(self.model.theta_norm, self.model.az_norm, 'g:', linewidth=2, label='Original')
+        p_az_pol.ax.plot(self.model.theta_norm, az_rec, 'k', label='Reconstructed')
+
+        # Polar Elevation
+        p_el_pol = PlotPanel(frame, "Elevation Error (Polar)", projection='polar')
+        p_el_pol.grid(row=1, column=1, sticky="nsew")
+        p_el_pol.ax.plot(self.model.theta_norm, self.model.el_norm, 'g:', linewidth=2, label='Original')
+        p_el_pol.ax.plot(self.model.theta_norm, el_rec, 'k', label='Reconstructed')
+
+        # --- ROW 2: STATS ---
         stats_frame = ttk.Frame(frame)
-        stats_frame.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=20)
+        stats_frame.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=20)
         
         txt = (f"Method: {self.model.method_name}\n"
                f"----------------------------\n"
@@ -454,9 +446,8 @@ class ResultsWindow:
 # ==========================================
 
 def main():
-    # 1. Run Setup Dialog
+    # Run Setup Dialog
     setup = SetupDialog()
-    # UNPACK 5 VALUES NOW
     filepath, method, do_center, do_loop, confirmed = setup.show()
 
     if not confirmed:
@@ -464,7 +455,7 @@ def main():
         print("Analysis cancelled.")
         sys.exit()
 
-    # 2. Initialize Model & Process Data
+    # Initialize Model & Process Data
     try:
         model = AntennaModel()
         
@@ -483,7 +474,7 @@ def main():
         tk.messagebox.showerror("Processing Error", str(e))
         sys.exit()
 
-    # 3. Launch Results View
+    # Launch Results View
     print("--------------------------")
     print("Launching Visualization...")
     print("--------------------------")
