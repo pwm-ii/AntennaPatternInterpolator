@@ -1,5 +1,5 @@
-'''
- ==============================================================
+''' 
+==============================================================
                                                              
   It's as easy as...                                         
                                                              
@@ -11,10 +11,10 @@
    ╚═╝     ╚═╝╚══════╝                                       
                                                              
    PAUL'S INTERPOLATION ENGINE                               
-   (REV 3.3)                                                 
-                                                             
- ==============================================================
-'''
+   (REV 3.3)
+
+ ============================================================== 
+ '''
 
 import os
 import sys
@@ -86,7 +86,7 @@ class AntennaModel:
             # --- OPTIONAL: AUTO-CENTERING ---
             if do_autocenter:
                 # Shift raw data so max peak (which I am interpreting as main lobe) is at index 0
-                # !!DO NOT USE IF PEAK OF AZIMUTH AND ELEVATION ARE NOT MEANT TO BE ALLIGNED!!
+                # WARNING: !! DO NOT USE IF PEAK OF AZIMUTH AND ELEVATION ARE NOT MEANT TO BE ALLIGNED!!
                 if len(self.raw_az) > 0:
                     shift_az = -np.argmax(self.raw_az)
                     self.raw_az = np.roll(self.raw_az, shift_az)
@@ -412,7 +412,7 @@ class ResultsWindow:
         p_el_rect.ax.set_xticklabels(labels)
         p_el_rect.ax.legend()
 
-        # --- ROW 1: POLAR PLOTS (New) ---
+        # --- ROW 1: POLAR PLOTS ---
 
         # Polar Azimuth
         p_az_pol = PlotPanel(frame, "Azimuth Error (Polar)", projection='polar')
@@ -483,3 +483,20 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+    '''
+    ===========================================================================
+   Copyright (C) 2025  Paul Mola
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.   
+   =========================================================================== 
+    '''
