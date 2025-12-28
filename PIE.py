@@ -167,6 +167,45 @@ class AntennaModel:
         self.y = r * np.sin(el_grid) * np.sin(az_grid)
         self.z = r * np.cos(el_grid)
 
+    # --- EXPORT 3D PATTERN AS CSV ---
+    def export_csv(self, filename):
+        # Phi[deg],Theta[deg],dB(DirTotal)
+            # Phi: Inner loop (-180 to 180)
+            # Theta: Outer loop (Starts at -180)
+            # Data is shifted so Peak is at Phi=0
+
+        if self.pattern_3d is None:
+            return
+
+        try:
+            # Find peak to align Phi=0
+            peak_flat_idx = np.argmax(self.pattern_3d)
+            peak_az_idx, _ = np.unravel_index(peak_flat_idx, self.pattern_3d.shape)
+            
+            with open(filename, 'w') as f:
+                f.write("Phi[deg],Theta[deg],dB(DirTotal)\n")
+                
+                rows, cols = self.pattern_3d.shape # rows=360 (Az), cols=180 (El)
+                
+                # Outer Loop: Theta (Elevation)
+                # Maps index 0..179 to -180..-1
+                for el_idx in range(cols):
+                    theta_deg = el_idx - 180
+                    
+                    # Inner Loop: Phi (Azimuth)
+                    # -180 to 180
+                    for phi_deg in range(-180, 181):
+                        
+                        # Calculate read index (shifting peak to phi=0)
+                        actual_idx = (peak_az_idx + phi_deg) % 360
+                        
+                        val = self.pattern_3d[actual_idx, el_idx]
+                        
+                        f.write(f"{phi_deg},{theta_deg},{val:.4f}\n")
+                        
+        except Exception as e:
+            raise RuntimeError(f"Export failed: {e}")
+
     # --- INTERPOLATION ALGORITHMS ---
     def _algo_summing(self, g_az, g_el):
         pattern = np.zeros((360, 180))
@@ -361,10 +400,18 @@ class ResultsWindow:
         frame = ttk.Frame(self.notebook)
         self.notebook.add(frame, text='3D Pattern')
         frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(0, weight=1)
+        
+        frame.rowconfigure(0, weight=0)
+        frame.rowconfigure(1, weight=1)
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+        
+        btn_export = ttk.Button(btn_frame, text="Export CSV Data", command=self._export_csv)
+        btn_export.pack(anchor="center")
 
         p3d = PlotPanel(frame, f"Reconstructed Pattern ({self.model.method_name})", projection='3d')
-        p3d.grid(row=0, column=0, sticky="nsew")
+        p3d.grid(row=1, column=0, sticky="nsew")
         
         surf = p3d.ax.plot_surface(
             self.model.x, self.model.y, self.model.z, 
@@ -372,6 +419,19 @@ class ResultsWindow:
         )
         p3d.figure.colorbar(surf, ax=p3d.ax, shrink=0.5, aspect=5, label='Gain [dBi]')
         p3d.ax.axis('off')
+
+    def _export_csv(self):
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+            title="Export 3D Pattern Data"
+        )
+        if filename:
+            try:
+                self.model.export_csv(filename)
+                messagebox.showinfo("Export Successful", f"Data saved to:\n{filename}")
+            except Exception as e:
+                messagebox.showerror("Export Failed", str(e))
 
     def _init_tab_error(self):
         """Tab 3: Cartesian & Polar Error Cuts (2x2 Grid)"""
