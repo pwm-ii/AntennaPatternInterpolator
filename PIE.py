@@ -11,7 +11,7 @@
    ╚═╝     ╚═╝╚══════╝                                       
                                                              
    PAUL'S INTERPOLATION ENGINE                               
-   (REV 3.3)
+   (REV 3.5)
 
  ============================================================== 
  '''
@@ -291,6 +291,41 @@ class PlotPanel(tk.Frame):
         self.ax.set_title(title, fontsize=10)
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        
+        # Add right-click context menu for saving plots
+        self.canvas.get_tk_widget().bind("<Button-3>", self._show_context_menu)
+        
+    def _show_context_menu(self, event):
+        """Show context menu on right-click"""
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Save Image As...", command=self._save_figure)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+    
+    def _save_figure(self):
+        """Save the figure using file dialog"""
+        filetypes = [
+            ("PNG Image", "*.png"),
+            ("PDF Document", "*.pdf"),
+            ("SVG Vector", "*.svg"),
+            ("JPEG Image", "*.jpg"),
+            ("All Files", "*.*")
+        ]
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=filetypes,
+            title="Save Plot Image"
+        )
+        
+        if filename:
+            try:
+                self.figure.savefig(filename, dpi=300, bbox_inches='tight')
+                messagebox.showinfo("Success", f"Image saved to:\n{filename}")
+            except Exception as e:
+                messagebox.showerror("Save Failed", str(e))
 
 class SetupDialog:
     def __init__(self):
