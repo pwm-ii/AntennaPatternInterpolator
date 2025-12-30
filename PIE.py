@@ -278,7 +278,7 @@ class PlotPanel(tk.Frame):
     def __init__(self, parent, title, projection=None):
         super().__init__(parent)
 
-        self.figure = Figure(figsize=(5, 3), dpi=100)
+        self.figure = Figure(figsize=(3, 2), dpi=100)
         self.figure.set_tight_layout(True)
 
         if projection == '3d':
@@ -390,7 +390,7 @@ class ResultsWindow:
         self.model = model
         self.root = tk.Tk()
         self.root.title(f"Results - {model.method_name} Method")
-        self.root.geometry("1200x800")
+        self.root.geometry("800x550")
         
         # Tabs
         self.notebook = ttk.Notebook(self.root)
@@ -403,7 +403,7 @@ class ResultsWindow:
 
     def _init_tab_raw(self):
         frame = ttk.Frame(self.notebook)
-        self.notebook.add(frame, text='Original (Processed Raw)')
+        self.notebook.add(frame, text='Original (Raw)')
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
         frame.rowconfigure(0, weight=1)
@@ -418,7 +418,7 @@ class ResultsWindow:
 
     def _init_tab_input(self):
         frame = ttk.Frame(self.notebook)
-        self.notebook.add(frame, text='Original (Normalized)')
+        self.notebook.add(frame, text='Original (Smoothed)')
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
         frame.rowconfigure(0, weight=1)
@@ -442,7 +442,7 @@ class ResultsWindow:
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
         
-        btn_export = ttk.Button(btn_frame, text="Export CSV Data", command=self._export_csv)
+        btn_export = ttk.Button(btn_frame, text="Export 3D Pattern as CSV", command=self._export_csv)
         btn_export.pack(anchor="center")
 
         p3d = PlotPanel(frame, f"Reconstructed Pattern ({self.model.method_name})", projection='3d')
