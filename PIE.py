@@ -572,7 +572,6 @@ def main():
     # Launch Results View
     print("--------------------------")
     print("Launching Visualization...")
-    print("--------------------------")
     app = ResultsWindow(model)
     app.show()
 
