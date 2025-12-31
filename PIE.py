@@ -11,7 +11,7 @@
    ╚═╝     ╚═╝╚══════╝                                       
                                                              
    PAUL'S INTERPOLATION ENGINE                               
-   (REV 3.5)
+   (REV 3.6)
 
  ============================================================== 
  '''
@@ -135,7 +135,7 @@ class AntennaModel:
         self.az_norm = interp1d(idx_az, self.raw_az, kind='cubic', fill_value="extrapolate")(target_deg)
         self.el_norm = interp1d(idx_el, self.raw_el, kind='cubic', fill_value="extrapolate")(target_deg)
 
-    def run_interpolation(self, method):
+    def run_interpolation(self, method, k=2, n=20):
         self.method_name = method
         
         g_az = self.az_norm
@@ -145,9 +145,9 @@ class AntennaModel:
         if method == 'Summing':
             self.pattern_3d = self._algo_summing(g_az, g_el)
         elif method == 'Approximation':
-            self.pattern_3d = self._algo_approx(g_az, g_el)
+            self.pattern_3d = self._algo_approx(g_az, g_el, k=k)
         elif method == 'Hybrid':
-            self.pattern_3d = self._algo_hybrid(g_az, g_el)
+            self.pattern_3d = self._algo_hybrid(g_az, g_el, k=k, n=n)
         else:
             raise ValueError("Unknown method")
 
@@ -217,13 +217,12 @@ class AntennaModel:
         pattern[180:, :] = g_az[180:, np.newaxis] + g_el[180:][::-1]
         return pattern
 
-    def _algo_approx(self, g_az, g_el):
+    def _algo_approx(self, g_az, g_el, k=2):
         pattern = np.zeros((360, 180))
         
         # Calculate linear scale on FULL arrays first
         vert = 10**(g_el/10)
         hor = 10**(g_az/10)
-        k = 2
         
         def calc_segment(db_h, lin_h, db_v, lin_v):
             # w1 = vertical_linear * (1 - horizontal_linear)
@@ -244,12 +243,11 @@ class AntennaModel:
         pattern[180:, :] = calc_segment(g_az[180:], hor[180:], g_el[180:][::-1], vert[180:][::-1])
         return pattern
 
-    def _algo_hybrid(self, g_az, g_el):
+    def _algo_hybrid(self, g_az, g_el, k=2, n=20):
         # Pass full arrays through to sub-functions
-        approx = self._algo_approx(g_az, g_el)
+        approx = self._algo_approx(g_az, g_el, k=k)
         summing = self._algo_summing(g_az, g_el)
         sum_dec = 10**(summing/10)
-        n = 20
         return summing * (sum_dec**(1/n)) + approx * (1 - sum_dec**(1/n))
 
     def get_reconstruction_error(self):
@@ -331,10 +329,13 @@ class SetupDialog:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Antenna Interpolation Setup")
-        self.root.geometry("500x350")
+        self.root.geometry("500x480") #500x350
         
         self.filepath = None
         self.method = tk.StringVar(value="Summing")
+        
+        self.var_k = tk.StringVar() 
+        self.var_n = tk.StringVar() 
         
         self.var_autocenter = tk.BooleanVar(value=True)
         self.var_loop_closure = tk.BooleanVar(value=True)
@@ -353,6 +354,26 @@ class SetupDialog:
         frame_method.pack(fill="x", padx=10, pady=5)
         for m in ['Summing', 'Approximation', 'Hybrid']:
             ttk.Radiobutton(frame_method, text=m, variable=self.method, value=m).pack(anchor='w', padx=10)
+
+        # --- INTERPOLATION WEIGHTS ---
+        frame_weights = ttk.LabelFrame(self.root, text="Interpolation Weights")
+        frame_weights.pack(fill="x", padx=10, pady=5)
+        
+        f_k = ttk.Frame(frame_weights)
+        f_k.pack(fill="x", padx=5, pady=2)
+        ttk.Label(f_k, text="Approximation Weight (k):").pack(side="left")
+        ttk.Entry(f_k, textvariable=self.var_k, width=10).pack(side="right")
+        
+        f_n = ttk.Frame(frame_weights)
+        f_n.pack(fill="x", padx=5, pady=2)
+        ttk.Label(f_n, text="Hybrid Weight (n):").pack(side="left")
+        ttk.Entry(f_n, textvariable=self.var_n, width=10).pack(side="right")
+
+        lbl_warn = ttk.Label(frame_weights, 
+                             text="Warning: Do not enter values here without reason!\nLeave unspecified to use default values.", 
+                             foreground="red", font=("Arial", 8, "italic"), justify="center")
+        lbl_warn.pack(pady=5)
+        # -----------------------------
 
         frame_settings = ttk.LabelFrame(self.root, text="Settings")
         frame_settings.pack(fill="x", padx=10, pady=5)
@@ -381,8 +402,21 @@ class SetupDialog:
 
     def show(self):
         self.root.mainloop()
+        
+        # Handle User Inputs for weights
+        k_val = self.var_k.get().strip()
+        n_val = self.var_n.get().strip()
+        
+        try:
+            k_out = float(k_val) if k_val else 2.0
+            n_out = float(n_val) if n_val else 20.0
+        except ValueError:
+            k_out = 2.0
+            n_out = 20.0
+
         return (self.filepath, self.method.get(), 
                 self.var_autocenter.get(), self.var_loop_closure.get(), 
+                k_out, n_out,
                 self.confirmed)
 
 class ResultsWindow:
@@ -543,7 +577,7 @@ class ResultsWindow:
 def main():
     # Run Setup Dialog
     setup = SetupDialog()
-    filepath, method, do_center, do_loop, confirmed = setup.show()
+    filepath, method, do_center, do_loop, k_val, n_val, confirmed = setup.show()
 
     if not confirmed:
         print("--------------------------")
@@ -563,7 +597,10 @@ def main():
         
         print("--------------------------")
         print(f"Running {method} Interpolation...")
-        model.run_interpolation(method)
+        print(f"Weights: k={k_val}, n={n_val}")
+        
+        # PASS WEIGHTS TO INTERPOLATION
+        model.run_interpolation(method, k=k_val, n=n_val)
         
     except Exception as e:
         tk.messagebox.showerror("Processing Error", str(e))
@@ -581,16 +618,16 @@ if __name__ == "__main__":
 
     '''
     ===========================================================================
-   Copyright (C) 2025  Paul Mola
+    Copyright (C) 2025  Paul Mola
 
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   at your option) any later version.
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.   
-   =========================================================================== 
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.   
+    =========================================================================== 
     '''
