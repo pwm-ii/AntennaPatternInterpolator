@@ -169,39 +169,45 @@ class AntennaModel:
 
     # --- EXPORT 3D PATTERN AS CSV ---
     def export_csv(self, filename):
-        # Phi[deg],Theta[deg],dB(DirTotal)
-            # Phi: Inner loop (-180 to 180)
-            # Theta: Outer loop (Starts at -180)
-            # Data is shifted so Peak is at Phi=0
+            # Phi: Azimuth(-180 to 180)
+            # Theta: Elevation (Starts at -180)
 
         if self.pattern_3d is None:
             return
-
         try:
-            # Find peak to align Phi=0
+            # align peak to Phi=0
             peak_flat_idx = np.argmax(self.pattern_3d)
             peak_az_idx, _ = np.unravel_index(peak_flat_idx, self.pattern_3d.shape)
             
+            # Define Export Range
+            phi_vals = np.arange(0, 361, 1)    
+            theta_vals = np.arange(0, 181, 1)
+
+            # Data Extraction
+            
+            el_indices = np.clip(theta_vals, 0, 179) # Prepare Indices for Theta (Columns)
+            
+            az_indices = (peak_az_idx + phi_vals) % 360 # Prepare Indices for Phi (Rows)
+
+            # Create Meshgrid
+            az_grid, el_grid = np.meshgrid(az_indices, el_indices, indexing='xy')
+            
+            # Extract Values
+            gains = self.pattern_3d[az_grid.T, el_grid.T] 
+            
+            # Flatten for writing
+            flat_gains = gains.flatten()
+            
+            flat_theta = np.repeat(theta_vals, len(phi_vals))
+            flat_phi = np.tile(phi_vals, len(theta_vals))
+
+            # Write to File
+            header = "Phi[deg],Theta[deg],Gain [dB, normalized]"
+            data_str = [f"{p},{t},{g:.4e}" for p, t, g in zip(flat_phi, flat_theta, flat_gains)]
+            
             with open(filename, 'w') as f:
-                f.write("Phi[deg],Theta[deg],dB(DirTotal)\n")
-                
-                rows, cols = self.pattern_3d.shape # rows=360 (Az), cols=180 (El)
-                
-                # Outer Loop: Theta (Elevation)
-                # Maps index 0..179 to -180..-1
-                for el_idx in range(cols):
-                    theta_deg = el_idx - 180
-                    
-                    # Inner Loop: Phi (Azimuth)
-                    # -180 to 180
-                    for phi_deg in range(-180, 181):
-                        
-                        # Calculate read index (shifting peak to phi=0)
-                        actual_idx = (peak_az_idx + phi_deg) % 360
-                        
-                        val = self.pattern_3d[actual_idx, el_idx]
-                        
-                        f.write(f"{phi_deg},{theta_deg},{val:.4f}\n")
+                f.write(header + "\n")
+                f.write("\n".join(data_str))
                         
         except Exception as e:
             raise RuntimeError(f"Export failed: {e}")
@@ -329,7 +335,7 @@ class SetupDialog:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Antenna Interpolation Setup")
-        self.root.geometry("500x480") #500x350
+        self.root.geometry("500x480")
         
         self.filepath = None
         self.method = tk.StringVar(value="Summing")
