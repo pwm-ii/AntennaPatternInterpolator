@@ -57,67 +57,72 @@ class AntennaModel:
         self.method_name = ""
 
     def load_data(self, filepath, do_autocenter, do_loop_closure):
-        self.filepath = filepath
-        self.is_loop_closed = do_loop_closure
-        try:
-            # check encoding
-            raw_lines = []
-            for encoding in ['utf-16', 'utf-8', 'latin-1']:
-                try:
-                    with open(filepath, 'r', encoding=encoding) as f:
-                        raw_lines = f.readlines()
-                    break
-                except UnicodeError:
-                    continue
-            
-            if not raw_lines:
-                raise ValueError("Could not decode file with standard encodings.")
-
-            data = [float(line.strip()) for line in raw_lines if line.strip()]
-            
-            if len(data) < 10: 
-                raise ValueError("File contains insufficient data.")
-
-            # Assume file is 50% Azimuth, 50% Elevation
-            midpoint = len(data) // 2
-            self.raw_az = np.array(data[:midpoint])
-            self.raw_el = np.array(data[midpoint:])
-            
-            # --- OPTIONAL: AUTO-CENTERING ---
-            if do_autocenter:
-                # Shift raw data so max peak (which I am interpreting as main lobe) is at index 0
-                # WARNING: !! DO NOT USE IF PEAK OF AZIMUTH AND ELEVATION ARE NOT MEANT TO BE ALLIGNED!!
-                if len(self.raw_az) > 0:
-                    shift_az = -np.argmax(self.raw_az)
-                    self.raw_az = np.roll(self.raw_az, shift_az)
+            self.filepath = filepath
+            self.is_loop_closed = do_loop_closure
+            try:
+                # check encoding
+                raw_lines = []
+                for encoding in ['utf-16', 'utf-8', 'latin-1']:
+                    try:
+                        with open(filepath, 'r', encoding=encoding) as f:
+                            raw_lines = f.readlines()
+                        break
+                    except UnicodeError:
+                        continue
                 
-                if len(self.raw_el) > 0:
-                    shift_el = -np.argmax(self.raw_el)
-                    self.raw_el = np.roll(self.raw_el, shift_el)
-            
-            # --- OPTIONAL: LOOP CLOSURE ---
-            # This is to help with exceptionally poor quality antenna resolution
-            if do_loop_closure:
-                # If the first and last values do not match, append the first to the end.
-                if len(self.raw_az) > 0 and self.raw_az[0] != self.raw_az[-1]:
-                    self.raw_az = np.append(self.raw_az, self.raw_az[0])
+                if not raw_lines:
+                    raise ValueError("Could not decode file with standard encodings.")
 
-                if len(self.raw_el) > 0 and self.raw_el[0] != self.raw_el[-1]:
-                    self.raw_el = np.append(self.raw_el, self.raw_el[0])
+                data = [float(line.strip()) for line in raw_lines if line.strip()]
+                
+                if len(data) < 10: 
+                    raise ValueError("File contains insufficient data.")
 
-            # Generate the angle arrays for the raw data (0 to 2pi)
-            # If loop is closed, we use endpoint=True (0 to 360 inclusive match)
-            # If loop is open, we use endpoint=False (0 to <360)
-            use_endpoint = do_loop_closure
-            
-            self.raw_theta_az = np.linspace(0, 2*np.pi, len(self.raw_az), endpoint=use_endpoint)
-            self.raw_theta_el = np.linspace(0, 2*np.pi, len(self.raw_el), endpoint=use_endpoint)
-            
-            # Normalize data to 360 points
-            self._normalize_inputs()
+                # --- NEW CHECK: ENSURE EVEN NUMBER OF POINTS ---
+                if len(data) % 2 != 0:
+                    raise ValueError(f"File contains an odd number of points ({len(data)}). Input must have equal Azimuth and Elevation counts.")
+                # -----------------------------------------------
 
-        except Exception as e:
-            raise RuntimeError(f"Failed to load file: {e}")
+                # Assume file is 50% Azimuth, 50% Elevation
+                midpoint = len(data) // 2
+                self.raw_az = np.array(data[:midpoint])
+                self.raw_el = np.array(data[midpoint:])
+                
+                # --- OPTIONAL: AUTO-CENTERING ---
+                if do_autocenter:
+                    # Shift raw data so max peak (which I am interpreting as main lobe) is at index 0
+                    # WARNING: !! DO NOT USE IF PEAK OF AZIMUTH AND ELEVATION ARE NOT MEANT TO BE ALLIGNED!!
+                    if len(self.raw_az) > 0:
+                        shift_az = -np.argmax(self.raw_az)
+                        self.raw_az = np.roll(self.raw_az, shift_az)
+                    
+                    if len(self.raw_el) > 0:
+                        shift_el = -np.argmax(self.raw_el)
+                        self.raw_el = np.roll(self.raw_el, shift_el)
+                
+                # --- OPTIONAL: LOOP CLOSURE ---
+                # This is to help with exceptionally poor quality antenna resolution
+                if do_loop_closure:
+                    # If the first and last values do not match, append the first to the end.
+                    if len(self.raw_az) > 0 and self.raw_az[0] != self.raw_az[-1]:
+                        self.raw_az = np.append(self.raw_az, self.raw_az[0])
+
+                    if len(self.raw_el) > 0 and self.raw_el[0] != self.raw_el[-1]:
+                        self.raw_el = np.append(self.raw_el, self.raw_el[0])
+
+                # Generate the angle arrays for the raw data (0 to 2pi)
+                # If loop is closed, we use endpoint=True (0 to 360 inclusive match)
+                # If loop is open, we use endpoint=False (0 to <360)
+                use_endpoint = do_loop_closure
+                
+                self.raw_theta_az = np.linspace(0, 2*np.pi, len(self.raw_az), endpoint=use_endpoint)
+                self.raw_theta_el = np.linspace(0, 2*np.pi, len(self.raw_el), endpoint=use_endpoint)
+                
+                # Normalize data to 360 points
+                self._normalize_inputs()
+
+            except Exception as e:
+                raise RuntimeError(f"Failed to load file: {e}")
 
     def _normalize_inputs(self):
         # Original indices
