@@ -136,7 +136,7 @@ class AntennaModel:
         self.az_norm = interp1d(idx_az, self.raw_az, kind='cubic', fill_value="extrapolate")(target_deg)
         self.el_norm = interp1d(idx_el, self.raw_el, kind='cubic', fill_value="extrapolate")(target_deg)
 
-    def run_interpolation(self, method, k=2, n=20, do_smooth=False):
+    def run_interpolation(self, method, k=2, n=5, do_smooth=False):
         self.method_name = method
         
         g_az = self.az_norm
@@ -428,10 +428,10 @@ class SetupDialog:
         
         try:
             k_out = float(k_val) if k_val else 2.0
-            n_out = float(n_val) if n_val else 20.0
+            n_out = float(n_val) if n_val else 5.0
         except ValueError:
             k_out = 2.0
-            n_out = 20.0
+            n_out = 5.0
 
         return (self.filepath, self.method.get(), 
                 self.var_autocenter.get(), self.var_loop_closure.get(), 
