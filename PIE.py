@@ -11,7 +11,7 @@
    ╚═╝     ╚═╝╚══════╝                                       
                                                              
    PAUL'S INTERPOLATION ENGINE                               
-   (REV 3.6)
+   (REV 3.7)
 
  ============================================================== 
  '''
@@ -22,6 +22,7 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from scipy.interpolate import interp1d
+from scipy.ndimage import gaussian_filter
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib import cm
@@ -57,72 +58,67 @@ class AntennaModel:
         self.method_name = ""
 
     def load_data(self, filepath, do_autocenter, do_loop_closure):
-            self.filepath = filepath
-            self.is_loop_closed = do_loop_closure
-            try:
-                # check encoding
-                raw_lines = []
-                for encoding in ['utf-16', 'utf-8', 'latin-1']:
-                    try:
-                        with open(filepath, 'r', encoding=encoding) as f:
-                            raw_lines = f.readlines()
-                        break
-                    except UnicodeError:
-                        continue
-                
-                if not raw_lines:
-                    raise ValueError("Could not decode file with standard encodings.")
+        self.filepath = filepath
+        self.is_loop_closed = do_loop_closure
+        try:
+            # check encoding
+            raw_lines = []
+            for encoding in ['utf-16', 'utf-8', 'latin-1']:
+                try:
+                    with open(filepath, 'r', encoding=encoding) as f:
+                        raw_lines = f.readlines()
+                    break
+                except UnicodeError:
+                    continue
+            
+            if not raw_lines:
+                raise ValueError("Could not decode file with standard encodings.")
 
-                data = [float(line.strip()) for line in raw_lines if line.strip()]
-                
-                if len(data) < 10: 
-                    raise ValueError("File contains insufficient data.")
+            data = [float(line.strip()) for line in raw_lines if line.strip()]
+            
+            if len(data) < 10: 
+                raise ValueError("File contains insufficient data.")
 
-                # --- NEW CHECK: ENSURE EVEN NUMBER OF POINTS ---
-                if len(data) % 2 != 0:
-                    raise ValueError(f"File contains an odd number of points ({len(data)}). Input must have equal Azimuth and Elevation counts.")
-                # -----------------------------------------------
-
-                # Assume file is 50% Azimuth, 50% Elevation
-                midpoint = len(data) // 2
-                self.raw_az = np.array(data[:midpoint])
-                self.raw_el = np.array(data[midpoint:])
+            # Assume file is 50% Azimuth, 50% Elevation
+            midpoint = len(data) // 2
+            self.raw_az = np.array(data[:midpoint])
+            self.raw_el = np.array(data[midpoint:])
+            
+            # --- OPTIONAL: AUTO-CENTERING ---
+            if do_autocenter:
+                # Shift raw data so max peak (which I am interpreting as main lobe) is at index 0
+                # WARNING: !! DO NOT USE IF PEAK OF AZIMUTH AND ELEVATION ARE NOT MEANT TO BE ALLIGNED!!
+                if len(self.raw_az) > 0:
+                    shift_az = -np.argmax(self.raw_az)
+                    self.raw_az = np.roll(self.raw_az, shift_az)
                 
-                # --- OPTIONAL: AUTO-CENTERING ---
-                if do_autocenter:
-                    # Shift raw data so max peak (which I am interpreting as main lobe) is at index 0
-                    # WARNING: !! DO NOT USE IF PEAK OF AZIMUTH AND ELEVATION ARE NOT MEANT TO BE ALLIGNED!!
-                    if len(self.raw_az) > 0:
-                        shift_az = -np.argmax(self.raw_az)
-                        self.raw_az = np.roll(self.raw_az, shift_az)
-                    
-                    if len(self.raw_el) > 0:
-                        shift_el = -np.argmax(self.raw_el)
-                        self.raw_el = np.roll(self.raw_el, shift_el)
-                
-                # --- OPTIONAL: LOOP CLOSURE ---
-                # This is to help with exceptionally poor quality antenna resolution
-                if do_loop_closure:
-                    # If the first and last values do not match, append the first to the end.
-                    if len(self.raw_az) > 0 and self.raw_az[0] != self.raw_az[-1]:
-                        self.raw_az = np.append(self.raw_az, self.raw_az[0])
+                if len(self.raw_el) > 0:
+                    shift_el = -np.argmax(self.raw_el)
+                    self.raw_el = np.roll(self.raw_el, shift_el)
+            
+            # --- OPTIONAL: LOOP CLOSURE ---
+            # This is to help with exceptionally poor quality antenna resolution
+            if do_loop_closure:
+                # If the first and last values do not match, append the first to the end.
+                if len(self.raw_az) > 0 and self.raw_az[0] != self.raw_az[-1]:
+                    self.raw_az = np.append(self.raw_az, self.raw_az[0])
 
-                    if len(self.raw_el) > 0 and self.raw_el[0] != self.raw_el[-1]:
-                        self.raw_el = np.append(self.raw_el, self.raw_el[0])
+                if len(self.raw_el) > 0 and self.raw_el[0] != self.raw_el[-1]:
+                    self.raw_el = np.append(self.raw_el, self.raw_el[0])
 
-                # Generate the angle arrays for the raw data (0 to 2pi)
-                # If loop is closed, we use endpoint=True (0 to 360 inclusive match)
-                # If loop is open, we use endpoint=False (0 to <360)
-                use_endpoint = do_loop_closure
-                
-                self.raw_theta_az = np.linspace(0, 2*np.pi, len(self.raw_az), endpoint=use_endpoint)
-                self.raw_theta_el = np.linspace(0, 2*np.pi, len(self.raw_el), endpoint=use_endpoint)
-                
-                # Normalize data to 360 points
-                self._normalize_inputs()
+            # Generate the angle arrays for the raw data (0 to 2pi)
+            # If loop is closed, we use endpoint=True (0 to 360 inclusive match)
+            # If loop is open, we use endpoint=False (0 to <360)
+            use_endpoint = do_loop_closure
+            
+            self.raw_theta_az = np.linspace(0, 2*np.pi, len(self.raw_az), endpoint=use_endpoint)
+            self.raw_theta_el = np.linspace(0, 2*np.pi, len(self.raw_el), endpoint=use_endpoint)
+            
+            # Normalize data to 360 points
+            self._normalize_inputs()
 
-            except Exception as e:
-                raise RuntimeError(f"Failed to load file: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load file: {e}")
 
     def _normalize_inputs(self):
         # Original indices
@@ -140,7 +136,7 @@ class AntennaModel:
         self.az_norm = interp1d(idx_az, self.raw_az, kind='cubic', fill_value="extrapolate")(target_deg)
         self.el_norm = interp1d(idx_el, self.raw_el, kind='cubic', fill_value="extrapolate")(target_deg)
 
-    def run_interpolation(self, method, k=2, n=20):
+    def run_interpolation(self, method, k=2, n=20, do_smooth=False):
         self.method_name = method
         
         g_az = self.az_norm
@@ -155,6 +151,13 @@ class AntennaModel:
             self.pattern_3d = self._algo_hybrid(g_az, g_el, k=k, n=n)
         else:
             raise ValueError("Unknown method")
+            
+        # --- 3D SURFACE SMOOTHING ---
+        if do_smooth:
+            # Apply Gaussian filter to smooth jagged edges
+            # Sigma=1 provides gentle smoothing without losing main features
+            self.pattern_3d = gaussian_filter(self.pattern_3d, sigma=1)
+        # ----------------------------
 
         self._spherical_to_cartesian()
 
@@ -350,6 +353,7 @@ class SetupDialog:
         
         self.var_autocenter = tk.BooleanVar(value=True)
         self.var_loop_closure = tk.BooleanVar(value=True)
+        self.var_smoothing = tk.BooleanVar(value=False) # New Smoothing Var
         
         self.confirmed = False
         self._build_ui()
@@ -391,6 +395,10 @@ class SetupDialog:
         
         ttk.Checkbutton(frame_settings, text="Auto-Center Peaks (to 0°)", variable=self.var_autocenter).pack(anchor='w', padx=10)
         ttk.Checkbutton(frame_settings, text="Enforce Loop Closure", variable=self.var_loop_closure).pack(anchor='w', padx=10)
+        
+        # --- NEW SMOOTHING CHECKBOX ---
+        ttk.Checkbutton(frame_settings, text="Enable 3D Surface Smoothing (Gaussian Filter)", variable=self.var_smoothing).pack(anchor='w', padx=10)
+        # ------------------------------
 
         btn_frame = ttk.Frame(self.root)
         btn_frame.pack(pady=15)
@@ -427,7 +435,7 @@ class SetupDialog:
 
         return (self.filepath, self.method.get(), 
                 self.var_autocenter.get(), self.var_loop_closure.get(), 
-                k_out, n_out,
+                k_out, n_out, self.var_smoothing.get(),
                 self.confirmed)
 
 class ResultsWindow:
@@ -588,7 +596,7 @@ class ResultsWindow:
 def main():
     # Run Setup Dialog
     setup = SetupDialog()
-    filepath, method, do_center, do_loop, k_val, n_val, confirmed = setup.show()
+    filepath, method, do_center, do_loop, k_val, n_val, do_smooth, confirmed = setup.show()
 
     if not confirmed:
         print("--------------------------")
@@ -601,7 +609,7 @@ def main():
         
         print("--------------------------")
         print(f"Loading: {filepath}...")
-        print(f"Settings: Auto-Center={do_center}, Loop-Closure={do_loop}")
+        print(f"Settings: Auto-Center={do_center}, Loop-Closure={do_loop}, Smoothing={do_smooth}")
         
         # PASS FLAGS TO LOAD_DATA
         model.load_data(filepath, do_center, do_loop)
@@ -611,7 +619,7 @@ def main():
         print(f"Weights: k={k_val}, n={n_val}")
         
         # PASS WEIGHTS TO INTERPOLATION
-        model.run_interpolation(method, k=k_val, n=n_val)
+        model.run_interpolation(method, k=k_val, n=n_val, do_smooth=do_smooth)
         
     except Exception as e:
         tk.messagebox.showerror("Processing Error", str(e))
