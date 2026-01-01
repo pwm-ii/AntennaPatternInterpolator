@@ -353,7 +353,7 @@ class SetupDialog:
         
         self.var_autocenter = tk.BooleanVar(value=True)
         self.var_loop_closure = tk.BooleanVar(value=True)
-        self.var_smoothing = tk.BooleanVar(value=False) # New Smoothing Var
+        self.var_smoothing = tk.BooleanVar(value=False)
         
         self.confirmed = False
         self._build_ui()
@@ -388,17 +388,13 @@ class SetupDialog:
                              text="Warning: Do not enter values here without reason!\nLeave unspecified to use default values.", 
                              foreground="red", font=("Arial", 8, "italic"), justify="center")
         lbl_warn.pack(pady=5)
-        # -----------------------------
 
         frame_settings = ttk.LabelFrame(self.root, text="Settings")
         frame_settings.pack(fill="x", padx=10, pady=5)
         
         ttk.Checkbutton(frame_settings, text="Auto-Center Peaks (to 0°)", variable=self.var_autocenter).pack(anchor='w', padx=10)
         ttk.Checkbutton(frame_settings, text="Enforce Loop Closure", variable=self.var_loop_closure).pack(anchor='w', padx=10)
-        
-        # --- NEW SMOOTHING CHECKBOX ---
         ttk.Checkbutton(frame_settings, text="Enable 3D Surface Smoothing (Gaussian Filter)", variable=self.var_smoothing).pack(anchor='w', padx=10)
-        # ------------------------------
 
         btn_frame = ttk.Frame(self.root)
         btn_frame.pack(pady=15)
@@ -444,6 +440,7 @@ class ResultsWindow:
         self.root = tk.Tk()
         self.root.title(f"Results - {model.method_name} Method")
         self.root.geometry("800x550")
+        self._init_top_bar()
         
         # Tabs
         self.notebook = ttk.Notebook(self.root)
@@ -453,6 +450,19 @@ class ResultsWindow:
         self._init_tab_input()
         self._init_tab_3d()
         self._init_tab_error()
+
+    def _init_top_bar(self):
+        """Creates a top bar with navigation controls"""
+        top_frame = ttk.Frame(self.root)
+        top_frame.pack(side="top", fill="x", pady=5, padx=10)
+        
+        btn_back = ttk.Button(top_frame, text="< Back to Setup", command=self._on_back)
+        btn_back.pack(side="left")
+
+    def _on_back(self):
+        """Closes results and restarts main to show setup"""
+        self.root.destroy()
+        main()
 
     def _init_tab_raw(self):
         frame = ttk.Frame(self.notebook)
