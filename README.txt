@@ -29,8 +29,10 @@ of gain values (in dB).
 
 Structure Requirements:
   - The total number of lines MUST be an EVEN number.
-  - Top Half of file    = Azimuth Data (0 to 360 degrees).
-  - Bottom Half of file = Elevation Data (0 to 360 degrees).
+  - The lines are split in half between Azimuth and Elevation Data.
+        - Top Half of file = Azimuth Data.
+        - Bottom Half of file = Elevation Data.
+  - Minimum Length: The file must have at least 10 lines total (5 for Azimuth, 5 for Elevation).
   - Data should ideally be NORMALIZED (Peak Gain = 0 dB) before loading.
 
 Example Layout (file.ant):
