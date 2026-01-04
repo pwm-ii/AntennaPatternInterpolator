@@ -340,12 +340,12 @@ class PlotPanel(tk.Frame):
                 messagebox.showerror("Save Failed", str(e))
 
 class SetupDialog:
-    def __init__(self):
+    def __init__(self, initial_file=None):
         self.root = tk.Tk()
         self.root.title("Antenna Interpolation Setup")
         self.root.geometry("500x480")
         
-        self.filepath = None
+        self.filepath = initial_file
         self.method = tk.StringVar(value="Summing")
         
         self.var_k = tk.StringVar() 
@@ -353,10 +353,14 @@ class SetupDialog:
         
         self.var_autocenter = tk.BooleanVar(value=True)
         self.var_loop_closure = tk.BooleanVar(value=True)
-        self.var_smoothing = tk.BooleanVar(value=False)
+        self.var_smoothing = tk.BooleanVar(value=True)
         
         self.confirmed = False
         self._build_ui()
+        
+        # Update label if initial file provided
+        if self.filepath:
+            self.lbl_file.config(text=os.path.basename(self.filepath), foreground="black")
 
     def _build_ui(self):
         frame_file = ttk.LabelFrame(self.root, text="Input Data")
@@ -461,8 +465,10 @@ class ResultsWindow:
 
     def _on_back(self):
         """Closes results and restarts main to show setup"""
+        # Persist file path
+        prev_file = self.model.filepath
         self.root.destroy()
-        main()
+        main(initial_file=prev_file)
 
     def _init_tab_raw(self):
         frame = ttk.Frame(self.notebook)
@@ -495,74 +501,87 @@ class ResultsWindow:
         p2.ax.plot(self.model.theta_norm, self.model.el_norm, color='g', label='Input')
 
     def _init_tab_3d(self):
-        frame = ttk.Frame(self.notebook)
-        self.notebook.add(frame, text='3D Pattern')
-        
-        # Configure for two columns: 3D view (left), 2D Map (right)
-        frame.columnconfigure(0, weight=1)
-        frame.columnconfigure(1, weight=1)
-        
-        frame.rowconfigure(0, weight=0) # Button row
-        frame.rowconfigure(1, weight=1) # Plot row
+            frame = ttk.Frame(self.notebook)
+            self.notebook.add(frame, text='3D Pattern')
+            
+            # Configure for two columns: 3D view (left), 2D Map (right)
+            frame.columnconfigure(0, weight=1)
+            frame.columnconfigure(1, weight=1)
+            
+            frame.rowconfigure(0, weight=0) # Button row
+            frame.rowconfigure(1, weight=1) # Plot row
 
-        btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
-        
-        btn_export = ttk.Button(btn_frame, text="Export 3D Pattern as CSV", command=self._export_csv)
-        btn_export.pack(anchor="center")
+            btn_frame = ttk.Frame(frame)
+            btn_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
+            
+            btn_export = ttk.Button(btn_frame, text="Export 3D Pattern as CSV", command=self._export_csv)
+            btn_export.pack(anchor="center")
 
-        # --- DATA PREPARATION ---
-        # Normalize data to 0 dB max for consistent coloring
-        max_gain = np.max(self.model.pattern_3d)
-        plot_data = self.model.pattern_3d - max_gain
+            # --- DATA PREPARATION ---
+            # Normalize data to 0 dB max
+            max_gain = np.max(self.model.pattern_3d)
+            plot_data = self.model.pattern_3d - max_gain
 
-        # Create a Color Mapping based on the ACTUAL data range (e.g., -40 to 0)
-        # This fixes the issue where the colorbar showed the shifted 'radius' values
-        vmin = np.min(plot_data)
-        vmax = np.max(plot_data)
-        norm = Normalize(vmin=vmin, vmax=vmax)
-        
-        # Apply the colormap to the data to get the face colors
-        # This 'paints' the surface with the correct dB values
-        surface_colors = cm.jet(norm(plot_data))
+            # --- FIX: WRAP DATA FOR VISUALIZATION ---
+            # The grid goes 0..359. To close the 3D surface visually, we must 
+            # append the 0-degree data to the end to create a 360-degree endpoint.
+            
+            # 1. Wrap the Scalar Data (Gain)
+            # Concatenate the first row (index 0) to the end of the array
+            plot_data_wrapped = np.concatenate([plot_data, plot_data[:1, :]], axis=0)
 
-        # --- Left Side: 3D Surface ---
-        p3d = PlotPanel(frame, f"Reconstructed Pattern (3D Plot)", projection='3d')
-        p3d.grid(row=1, column=0, sticky="nsew")
-        
-        # We pass 'facecolors' to override the default height-based coloring
-        surf = p3d.ax.plot_surface(
-            self.model.x, self.model.y, self.model.z, 
-            facecolors=surface_colors, # <--- KEY FIX
-            rstride=2, cstride=2,      # Optimizes performance
-            linewidth=0, antialiased=False, shade=False
-        )
-        
-        # Create a Fake Colorbar that matches our manual normalization
-        m = cm.ScalarMappable(cmap=cm.jet, norm=norm)
-        m.set_array([])
-        p3d.figure.colorbar(m, ax=p3d.ax, shrink=0.5, aspect=5, label='Normalized Gain [dB]')
-        p3d.ax.axis('off')
+            # 2. Wrap the Spatial Coordinates (X, Y, Z)
+            # We do the same for the mesh coordinates so the physical geometry closes
+            x_wrapped = np.concatenate([self.model.x, self.model.x[:1, :]], axis=0)
+            y_wrapped = np.concatenate([self.model.y, self.model.y[:1, :]], axis=0)
+            z_wrapped = np.concatenate([self.model.z, self.model.z[:1, :]], axis=0)
 
-        # --- Right Side: 2D Heatmap (Phi vs Theta) ---
-        p_2d = PlotPanel(frame, "Reconstructed Pattern (2D Heatmap)")
-        p_2d.grid(row=1, column=1, sticky="nsew")
+            # Create Color Mapping
+            vmin = np.min(plot_data_wrapped)
+            vmax = np.max(plot_data_wrapped)
+            norm = Normalize(vmin=vmin, vmax=vmax)
+            
+            # Generate colors based on the WRAPPED data
+            surface_colors = cm.nipy_spectral(norm(plot_data_wrapped))
 
-        extent = [0, 180, 0, 360] # [x_min, x_max, y_min, y_max]
+            # --- Left Side: 3D Surface ---
+            p3d = PlotPanel(frame, f"Reconstructed Pattern (3D Plot)", projection='3d')
+            p3d.grid(row=1, column=0, sticky="nsew")
+            
+            # Plot using the WRAPPED arrays
+            surf = p3d.ax.plot_surface(
+                x_wrapped, y_wrapped, z_wrapped, 
+                facecolors=surface_colors,
+                rstride=2, cstride=2,
+                linewidth=0, antialiased=False, shade=False
+            )
+            
+            # Fake Colorbar
+            m = cm.ScalarMappable(cmap=cm.nipy_spectral, norm=norm)
+            m.set_array([])
+            p3d.figure.colorbar(m, ax=p3d.ax, shrink=0.5, aspect=5, label='Normalized Gain [dB]')
+            p3d.ax.axis('off')
 
-        im = p_2d.ax.imshow(plot_data, 
-                            extent=extent,
-                            aspect='auto', 
-                            origin='lower',
-                            cmap=cm.jet,
-                            interpolation='bilinear',
-                            vmin=vmin, vmax=vmax) # Ensure 2D plot matches 3D plot
-        
-        p_2d.ax.set_xlabel("Theta (degree)")
-        p_2d.ax.set_ylabel("Phi (degree)")
-        
-        # Add Colorbar
-        p_2d.figure.colorbar(im, ax=p_2d.ax, label='Normalized Gain [dB]')
+            # --- Right Side: 2D Heatmap ---
+            p_2d = PlotPanel(frame, "Reconstructed Pattern (2D Heatmap)")
+            p_2d.grid(row=1, column=1, sticky="nsew")
+
+            extent = [0, 180, 0, 360] 
+
+            # We can use the wrapped data here too, or original. 
+            # Using wrapped ensures the top pixel row matches the bottom perfectly.
+            im = p_2d.ax.imshow(plot_data_wrapped, 
+                                extent=extent,
+                                aspect='auto', 
+                                origin='lower',
+                                cmap=cm.nipy_spectral,
+                                interpolation='bilinear',
+                                vmin=vmin, vmax=vmax)
+            
+            p_2d.ax.set_xlabel("Theta (degree)")
+            p_2d.ax.set_ylabel("Phi (degree)")
+            
+            p_2d.figure.colorbar(im, ax=p_2d.ax, label='Normalized Gain [dB]')
 
     def _export_csv(self):
         filename = filedialog.asksaveasfilename(
@@ -649,9 +668,9 @@ class ResultsWindow:
 # RUN CODE
 # ==========================================
 
-def main():
+def main(initial_file=None):
     # Run Setup Dialog
-    setup = SetupDialog()
+    setup = SetupDialog(initial_file=initial_file)
     filepath, method, do_center, do_loop, k_val, n_val, do_smooth, confirmed = setup.show()
 
     if not confirmed:
