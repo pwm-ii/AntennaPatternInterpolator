@@ -42,7 +42,7 @@ class AntennaModel:
         self.raw_theta_az = None
         self.raw_theta_el = None
         
-        # Normalized Data Containers (normalzied to 1deg steps)
+        # Normalized Data Containers (normalized to 1deg steps)
         self.az_norm = None
         self.el_norm = None
         self.theta_norm = np.deg2rad(np.arange(0, 360, 1))
@@ -177,8 +177,8 @@ class AntennaModel:
 
     # --- EXPORT 3D PATTERN AS CSV ---
     def export_csv(self, filename):
-            # Phi: Azimuth(-180 to 180)
-            # Theta: Elevation (Starts at -180)
+        # Phi: Azimuth(0 to 360)
+        # Theta: Elevation (0 to 179) - corrected to avoid index error
 
         if self.pattern_3d is None:
             return
@@ -189,11 +189,11 @@ class AntennaModel:
             
             # Define Export Range
             phi_vals = np.arange(0, 361, 1)    
-            theta_vals = np.arange(0, 181, 1)
+            
+            theta_vals = np.arange(0, 180, 1)
 
             # Data Extraction
-            
-            el_indices = np.clip(theta_vals, 0, 179) # Prepare Indices for Theta (Columns)
+            el_indices = theta_vals 
             
             az_indices = (peak_az_idx + phi_vals) % 360 # Prepare Indices for Phi (Rows)
 
@@ -531,10 +531,6 @@ class ResultsWindow:
             max_gain = np.max(self.model.pattern_3d)
             plot_data = self.model.pattern_3d - max_gain
 
-            # --- FIX: WRAP DATA FOR VISUALIZATION ---
-            # The grid goes 0..359. To close the 3D surface visually, we must 
-            # append the 0-degree data to the end to create a 360-degree endpoint.
-            
             # 1. Wrap the Scalar Data (Gain)
             # Concatenate the first row (index 0) to the end of the array
             plot_data_wrapped = np.concatenate([plot_data, plot_data[:1, :]], axis=0)
