@@ -11,7 +11,7 @@
    ╚═╝     ╚═╝╚══════╝                                       
                                                              
    PAUL'S INTERPOLATION ENGINE                               
-   (REV 3.7)
+   (REV 3.8)
 
  ============================================================== 
  '''
@@ -429,9 +429,18 @@ class SetupDialog:
         try:
             k_out = float(k_val) if k_val else 2.0
             n_out = float(n_val) if n_val else 5.0
+            if k_out <= 0 or n_out <= 0:
+                messagebox.showerror("Input Error", "Weights k and n must be greater than 0.")
+                self.confirmed = False
+                # If invalid, return None so main knows not to proceed
+                return None 
+            
         except ValueError:
             k_out = 2.0
             n_out = 5.0
+
+        if not self.confirmed:
+            return None
 
         return (self.filepath, self.method.get(), 
                 self.var_autocenter.get(), self.var_loop_closure.get(), 
@@ -443,7 +452,7 @@ class ResultsWindow:
         self.model = model
         self.root = tk.Tk()
         self.root.title(f"Results - {model.method_name} Method")
-        self.root.geometry("1100x600") # Increased width to accommodate 2 plots
+        self.root.geometry("1100x600") 
         self._init_top_bar()
         
         # Tabs
@@ -671,7 +680,13 @@ class ResultsWindow:
 def main(initial_file=None):
     # Run Setup Dialog
     setup = SetupDialog(initial_file=initial_file)
-    filepath, method, do_center, do_loop, k_val, n_val, do_smooth, confirmed = setup.show()
+    result = setup.show()
+    
+    # Handle abort if validation failed or window closed
+    if result is None:
+        sys.exit()
+        
+    filepath, method, do_center, do_loop, k_val, n_val, do_smooth, confirmed = result
 
     if not confirmed:
         print("--------------------------")
