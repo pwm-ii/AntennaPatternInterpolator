@@ -439,7 +439,7 @@ class ResultsWindow:
         self.model = model
         self.root = tk.Tk()
         self.root.title(f"Results - {model.method_name} Method")
-        self.root.geometry("800x550")
+        self.root.geometry("1100x600") # Increased width to accommodate 2 plots
         self._init_top_bar()
         
         # Tabs
@@ -497,17 +497,21 @@ class ResultsWindow:
     def _init_tab_3d(self):
         frame = ttk.Frame(self.notebook)
         self.notebook.add(frame, text='3D Pattern')
-        frame.columnconfigure(0, weight=1)
         
-        frame.rowconfigure(0, weight=0)
-        frame.rowconfigure(1, weight=1)
+        # Configure for two columns: 3D view (left), 2D Map (right)
+        frame.columnconfigure(0, weight=1)
+        frame.columnconfigure(1, weight=1)
+        
+        frame.rowconfigure(0, weight=0) # Button row
+        frame.rowconfigure(1, weight=1) # Plot row
 
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+        btn_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
         
         btn_export = ttk.Button(btn_frame, text="Export 3D Pattern as CSV", command=self._export_csv)
         btn_export.pack(anchor="center")
 
+        # --- Left Side: 3D Surface ---
         p3d = PlotPanel(frame, f"Reconstructed Pattern ({self.model.method_name})", projection='3d')
         p3d.grid(row=1, column=0, sticky="nsew")
         
@@ -515,8 +519,32 @@ class ResultsWindow:
             self.model.x, self.model.y, self.model.z, 
             cmap=cm.jet, edgecolor='none', alpha=0.9
         )
-        p3d.figure.colorbar(surf, ax=p3d.ax, shrink=0.5, aspect=5, label='Gain [dB]')
+        p3d.figure.colorbar(surf, ax=p3d.ax, shrink=0.5, aspect=5, label='Normalized Gain [dB]')
         p3d.ax.axis('off')
+
+        # --- Right Side: 2D Heatmap (Phi vs Theta) ---
+        p_2d = PlotPanel(frame, "Reconstruted Pattern (Gain Heatmap)")
+        p_2d.grid(row=1, column=1, sticky="nsew")
+
+        # The data is shaped (360, 180) -> (Phi, Theta)
+        # We want Theta on X-axis (0-180) and Phi on Y-axis (0-360)
+        # imshow plots (Rows, Cols). Here Rows=Phi(Y), Cols=Theta(X).
+        # origin='lower' ensures index 0 is at the bottom.
+        
+        extent = [0, 180, 0, 360] # [x_min, x_max, y_min, y_max]
+
+        im = p_2d.ax.imshow(self.model.pattern_3d, 
+                            extent=extent,
+                            aspect='auto', 
+                            origin='lower',
+                            cmap=cm.jet,
+                            interpolation='bilinear')
+        
+        p_2d.ax.set_xlabel("Theta (degree)")
+        p_2d.ax.set_ylabel("Phi (degree)")
+        
+        # Add Colorbar
+        cbar = p_2d.figure.colorbar(im, ax=p_2d.ax, label='Normalized Gain [dB]')
 
     def _export_csv(self):
         filename = filedialog.asksaveasfilename(
@@ -558,7 +586,7 @@ class ResultsWindow:
         p_az_rect.ax.plot(self.model.theta_norm, az_rec, 'k', label='Reconstructed')
         p_az_rect.ax.set_xticks(ticks)
         p_az_rect.ax.set_xticklabels(labels)
-        p_az_rect.ax.set_ylabel("Gain [dB]")
+        p_az_rect.ax.set_ylabel("Normalized Gain [dB]")
         p_az_rect.ax.legend()
 
         # Rect Elevation
