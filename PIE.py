@@ -26,7 +26,7 @@ from scipy.ndimage import gaussian_filter
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib import cm
-
+from matplotlib.colors import Normalize
 
 # ==========================================
 # Data Handling / Interpolation
@@ -246,7 +246,7 @@ class AntennaModel:
             
             # num = horizontal_dB * w1 + vertical_dB * w2
             num = db_h[:, np.newaxis] * w1 + db_v * w2
-            den = np.sqrt(w1**k) + w2**k
+            den = (w1**k + w2**k)**(1/k)
             mask = (w1 == 0) & (w2 == 0)
             return np.where(mask, 0, num/den)
 
@@ -511,40 +511,58 @@ class ResultsWindow:
         btn_export = ttk.Button(btn_frame, text="Export 3D Pattern as CSV", command=self._export_csv)
         btn_export.pack(anchor="center")
 
+        # --- DATA PREPARATION ---
+        # Normalize data to 0 dB max for consistent coloring
+        max_gain = np.max(self.model.pattern_3d)
+        plot_data = self.model.pattern_3d - max_gain
+
+        # Create a Color Mapping based on the ACTUAL data range (e.g., -40 to 0)
+        # This fixes the issue where the colorbar showed the shifted 'radius' values
+        vmin = np.min(plot_data)
+        vmax = np.max(plot_data)
+        norm = Normalize(vmin=vmin, vmax=vmax)
+        
+        # Apply the colormap to the data to get the face colors
+        # This 'paints' the surface with the correct dB values
+        surface_colors = cm.jet(norm(plot_data))
+
         # --- Left Side: 3D Surface ---
         p3d = PlotPanel(frame, f"Reconstructed Pattern (3D Plot)", projection='3d')
         p3d.grid(row=1, column=0, sticky="nsew")
         
+        # We pass 'facecolors' to override the default height-based coloring
         surf = p3d.ax.plot_surface(
             self.model.x, self.model.y, self.model.z, 
-            cmap=cm.jet, edgecolor='none', alpha=0.9
+            facecolors=surface_colors, # <--- KEY FIX
+            rstride=2, cstride=2,      # Optimizes performance
+            linewidth=0, antialiased=False, shade=False
         )
-        p3d.figure.colorbar(surf, ax=p3d.ax, shrink=0.5, aspect=5, label='Normalized Gain [dB]')
+        
+        # Create a Fake Colorbar that matches our manual normalization
+        m = cm.ScalarMappable(cmap=cm.jet, norm=norm)
+        m.set_array([])
+        p3d.figure.colorbar(m, ax=p3d.ax, shrink=0.5, aspect=5, label='Normalized Gain [dB]')
         p3d.ax.axis('off')
 
         # --- Right Side: 2D Heatmap (Phi vs Theta) ---
         p_2d = PlotPanel(frame, "Reconstructed Pattern (2D Heatmap)")
         p_2d.grid(row=1, column=1, sticky="nsew")
 
-        # The data is shaped (360, 180) -> (Phi, Theta)
-        # We want Theta on X-axis (0-180) and Phi on Y-axis (0-360)
-        # imshow plots (Rows, Cols). Here Rows=Phi(Y), Cols=Theta(X).
-        # origin='lower' ensures index 0 is at the bottom.
-        
         extent = [0, 180, 0, 360] # [x_min, x_max, y_min, y_max]
 
-        im = p_2d.ax.imshow(self.model.pattern_3d, 
+        im = p_2d.ax.imshow(plot_data, 
                             extent=extent,
                             aspect='auto', 
                             origin='lower',
                             cmap=cm.jet,
-                            interpolation='bilinear')
+                            interpolation='bilinear',
+                            vmin=vmin, vmax=vmax) # Ensure 2D plot matches 3D plot
         
         p_2d.ax.set_xlabel("Theta (degree)")
         p_2d.ax.set_ylabel("Phi (degree)")
         
         # Add Colorbar
-        cbar = p_2d.figure.colorbar(im, ax=p_2d.ax, label='Normalized Gain [dB]')
+        p_2d.figure.colorbar(im, ax=p_2d.ax, label='Normalized Gain [dB]')
 
     def _export_csv(self):
         filename = filedialog.asksaveasfilename(
