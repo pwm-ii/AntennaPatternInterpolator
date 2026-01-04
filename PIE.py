@@ -512,7 +512,7 @@ class ResultsWindow:
         btn_export.pack(anchor="center")
 
         # --- Left Side: 3D Surface ---
-        p3d = PlotPanel(frame, f"Reconstructed Pattern ({self.model.method_name})", projection='3d')
+        p3d = PlotPanel(frame, f"Reconstructed Pattern (3D Plot)", projection='3d')
         p3d.grid(row=1, column=0, sticky="nsew")
         
         surf = p3d.ax.plot_surface(
@@ -523,7 +523,7 @@ class ResultsWindow:
         p3d.ax.axis('off')
 
         # --- Right Side: 2D Heatmap (Phi vs Theta) ---
-        p_2d = PlotPanel(frame, "Reconstruted Pattern (Gain Heatmap)")
+        p_2d = PlotPanel(frame, "Reconstructed Pattern (2D Heatmap)")
         p_2d.grid(row=1, column=1, sticky="nsew")
 
         # The data is shaped (360, 180) -> (Phi, Theta)
