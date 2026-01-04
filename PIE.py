@@ -515,7 +515,7 @@ class ResultsWindow:
             self.model.x, self.model.y, self.model.z, 
             cmap=cm.jet, edgecolor='none', alpha=0.9
         )
-        p3d.figure.colorbar(surf, ax=p3d.ax, shrink=0.5, aspect=5, label='Gain [dBi]')
+        p3d.figure.colorbar(surf, ax=p3d.ax, shrink=0.5, aspect=5, label='Gain [dB]')
         p3d.ax.axis('off')
 
     def _export_csv(self):
@@ -558,7 +558,7 @@ class ResultsWindow:
         p_az_rect.ax.plot(self.model.theta_norm, az_rec, 'k', label='Reconstructed')
         p_az_rect.ax.set_xticks(ticks)
         p_az_rect.ax.set_xticklabels(labels)
-        p_az_rect.ax.set_ylabel("Gain [dBi]")
+        p_az_rect.ax.set_ylabel("Gain [dB]")
         p_az_rect.ax.legend()
 
         # Rect Elevation
