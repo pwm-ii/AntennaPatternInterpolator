@@ -550,7 +550,7 @@ class ResultsWindow:
             surface_colors = cm.nipy_spectral(norm(plot_data_wrapped))
 
             # --- Left Side: 3D Surface ---
-            p3d = PlotPanel(frame, f"Reconstructed Pattern (3D Plot)", projection='3d')
+            p3d = PlotPanel(frame, f"Reconstructed Pattern (3D Polar Plot)", projection='3d')
             p3d.grid(row=1, column=0, sticky="nsew")
             
             # Plot using the WRAPPED arrays
