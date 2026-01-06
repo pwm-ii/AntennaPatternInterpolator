@@ -1,15 +1,15 @@
 ''' 
 ==============================================================
-                                                             
-  It's as easy as...                                         
-                                                             
-   ██████╗ ██╗███████╗                                       
-   ██╔══██╗██║██╔════╝                                       
-   ██████╔╝██║█████╗                                         
-   ██╔═══╝ ██║██╔══╝                                         
-   ██║     ██║███████╗                                       
-   ╚═╝     ╚═╝╚══════╝                                       
-                                                             
+                                                              
+  It's as easy as...                                          
+                                                              
+   ██████╗ ██╗███████╗                                        
+   ██╔══██╗██║██╔════╝                                        
+   ██████╔╝██║█████╗                                          
+   ██╔═══╝ ██║██╔══╝                                          
+   ██║     ██║███████╗                                        
+   ╚═╝     ╚═╝╚══════╝                                        
+                                                              
    PAUL'S INTERPOLATION ENGINE                               
    (REV 3.8)
 
@@ -189,28 +189,29 @@ class AntennaModel:
             
             # Define Export Range
             phi_vals = np.arange(0, 361, 1)    
-            
             theta_vals = np.arange(0, 180, 1)
 
             # Data Extraction
             el_indices = theta_vals 
-            
             az_indices = (peak_az_idx + phi_vals) % 360 # Prepare Indices for Phi (Rows)
 
-            # Create Meshgrid
+            # Create Meshgrid for data extraction (Indices)
             az_grid, el_grid = np.meshgrid(az_indices, el_indices, indexing='xy')
             
+            # Create Meshgrid for labels (0..360, 0..180) to match the data structure
+            phi_grid, theta_grid = np.meshgrid(phi_vals, theta_vals, indexing='xy')
+
             # Extract Values
+            # We transpose (.T) so the shape becomes (Phi, Theta) -> (361, 180)
             gains = self.pattern_3d[az_grid.T, el_grid.T] 
             
-            # Flatten for writing
+            # Flatten arrays using the exact same structure to ensure 1:1 mapping
             flat_gains = gains.flatten()
-            
-            flat_theta = np.repeat(theta_vals, len(phi_vals))
-            flat_phi = np.tile(phi_vals, len(theta_vals))
+            flat_phi = phi_grid.T.flatten()
+            flat_theta = theta_grid.T.flatten()
 
             # Write to File
-            header = "Phi[deg],Theta[deg],Gain [dB, normalized]"
+            header = "Phi[deg],Theta[deg],dB10normalize(GainTotal)"
             data_str = [f"{p},{t},{g:.4e}" for p, t, g in zip(flat_phi, flat_theta, flat_gains)]
             
             with open(filename, 'w') as f:
