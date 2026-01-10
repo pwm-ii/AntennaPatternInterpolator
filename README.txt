@@ -1,28 +1,23 @@
-===========================================================================
-                     PAUL'S INTERPOLATION ENGINE (PIE) - User Guide
-===========================================================================
 
-1. PURPOSE
+                     ANTENNA PATTERN INTERPOLATOR README
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+1.) PURPOSE
 ---------------------------------------------------------------------------
 This tool is designed to reconstruct a full 3D antenna radiation pattern 
 using only two 2D principal cuts:
-  1. The Azimuth Cut (Horizontal plane)
-  2. The Elevation Cut (Vertical plane)
-
-It allows for rapid visualization and data export of 3D coverage without 
-needing time-consuming full-sphere measurements or simulations.
+  1. The Azimuth Cut
+  2. The Elevation Cut
 
 
-2. REQUIREMENTS & LAUNCH
+2.) REQUIREMENTS
 ---------------------------------------------------------------------------
 Language: Python 3.x
 Required Libraries: numpy, scipy, matplotlib, tkinter
 
-To run the application:
-   python PIE.py
 
-
-3. INPUT FILE FORMAT (CRITICAL)
+3.) INPUT FILE FORMAT
 ---------------------------------------------------------------------------
 The tool accepts text files (.ant, .txt, .csv) containing a SINGLE column 
 of gain values (in dB).
@@ -50,7 +45,7 @@ Example Layout (file.ant):
   -10.0   <-- Elevation 359 deg
 
 
-4. INTERPOLATION METHODS
+4.) INTERPOLATION METHODS
 ---------------------------------------------------------------------------
 A. Summing
    - Methodology: Mathematically adds the logarithmic/decibel patterns 
@@ -95,54 +90,23 @@ C. Hybrid (Optimized)
            - Panel Antenna: Optimal n = 5.0
 
 
-5. SETTINGS & OPTIONS
+5.) SETTINGS & OPTIONS
 ---------------------------------------------------------------------------
 [ ] Auto-Center Peaks
-    - If checked, the tool shifts the data so the maximum gain value is 
+    - If checked, the tool shifts the data so the main lobe (peak gain) is 
       aligned to 0 degrees.
-    - USE: Keep ON unless your measurements are already perfectly aligned 
+    - Keep on unless your measurements are already perfectly aligned 
       to the coordinate system.
 
 [ ] Enforce Loop Closure
     - Ensures the value at 0 degrees matches the value at 360 degrees.
-    - USE: Keep ON to prevent gaps in the 3D mesh.
+    - Keep on to prevent gaps in the 3D mesh.
 
 [ ] Enable 3D Surface Smoothing (Gaussian Filter)
     - Applies a low-pass filter to the generated 3D data.
-    - USE: Turn ON if the resulting 3D plot looks "jagged" or pixelated 
-      due to measurement noise.
 
-
-6. EXPORT FORMAT
+6.) EXPORT FORMAT
 ---------------------------------------------------------------------------
 The tool exports a CSV file with three columns: Phi, Theta, and Gain.
-  - Phi range:   0 to 360
-  - Theta range: 0 to 180
-
-Example Layout (output.csv):
-  Phi[deg],Theta[deg],Gain [dB, normalized]
-  0, 0, -15.2     <-- Theta 0 deg (North Pole), Phi 0 deg
-  1, 0, -15.2     <-- Theta 0 deg, Phi 1 deg
-   
-          [...]
-
-  360, 0, -15.2   <-- Theta 0 deg, Phi 360 deg
-  0, 1, -14.8     <-- Theta 1 deg, Phi 0 deg
-  1, 1, -14.9     <-- Theta 1 deg, Phi 1 deg
-   
-          [...]
-
-  360, 180, -20.5 <-- Theta 180 deg (South Pole), Phi 360 deg
-
-
-7. TROUBLESHOOTING NOTES
----------------------------------------------------------------------------
-ISSUE: "File contains an odd number of points"
-  - CAUSE: The input file has unequal lengths for Azimuth and Elevation.
-  - FIX: Open the .ant file. Ensure the number of Azimuth lines exactly 
-    matches the number of Elevation lines. Delete trailing newlines.
-
-ISSUE: 3D Pattern looks "doubled" or Gain is way too high.
-  - CAUSE: You used the "Summing" method with absolute gain (e.g., 15 dBi).
-  - FIX: Normalize your input data so the peak is 0.0 dB before loading. 
-    (0 + 0 = 0, but 15 + 15 = 30).
+  - Phi range:   0 to 359
+  - Theta range: 0 to 179
