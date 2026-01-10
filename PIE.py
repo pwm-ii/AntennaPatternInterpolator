@@ -28,29 +28,17 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib import cm
 from matplotlib.colors import Normalize
 
-# ==========================================
-# Data Handling / Interpolation
-# ==========================================
-
 class AntennaModel:
     def __init__(self):
         self.filepath = None
-        
-        # Raw Data Containers
         self.raw_az = None
         self.raw_el = None
         self.raw_theta_az = None
         self.raw_theta_el = None
-        
-        # Normalized Data Containers (normalized to 1deg steps)
         self.az_norm = None
         self.el_norm = None
         self.theta_norm = np.deg2rad(np.arange(0, 360, 1))
-        
-        # State
         self.is_loop_closed = False
-        
-        # Results
         self.pattern_3d = None
         self.x = None
         self.y = None
@@ -61,7 +49,6 @@ class AntennaModel:
         self.filepath = filepath
         self.is_loop_closed = do_loop_closure
         try:
-            # check encoding
             raw_lines = []
             for encoding in ['utf-16', 'utf-8', 'latin-1']:
                 try:
@@ -84,10 +71,8 @@ class AntennaModel:
             self.raw_az = np.array(data[:midpoint])
             self.raw_el = np.array(data[midpoint:])
             
-            # --- OPTIONAL: AUTO-CENTERING ---
             if do_autocenter:
-                # Shift raw data so max peak (which I am interpreting as main lobe) is at index 0
-                # WARNING: !! DO NOT USE IF PEAK OF AZIMUTH AND ELEVATION ARE NOT MEANT TO BE ALLIGNED!!
+                # Align main lobe (peak datapoint) peaks to 0°. Only use if Az/El peaks should coincide.
                 if len(self.raw_az) > 0:
                     shift_az = -np.argmax(self.raw_az)
                     self.raw_az = np.roll(self.raw_az, shift_az)
@@ -96,51 +81,35 @@ class AntennaModel:
                     shift_el = -np.argmax(self.raw_el)
                     self.raw_el = np.roll(self.raw_el, shift_el)
             
-            # --- OPTIONAL: LOOP CLOSURE ---
-            # This is to help with exceptionally poor quality antenna resolution
             if do_loop_closure:
-                # If the first and last values do not match, append the first to the end.
+                # Force first/last continuity for low-quality measurements
                 if len(self.raw_az) > 0 and self.raw_az[0] != self.raw_az[-1]:
                     self.raw_az = np.append(self.raw_az, self.raw_az[0])
 
                 if len(self.raw_el) > 0 and self.raw_el[0] != self.raw_el[-1]:
                     self.raw_el = np.append(self.raw_el, self.raw_el[0])
 
-            # Generate the angle arrays for the raw data (0 to 2pi)
-            # If loop is closed, we use endpoint=True (0 to 360 inclusive match)
-            # If loop is open, we use endpoint=False (0 to <360)
             use_endpoint = do_loop_closure
-            
             self.raw_theta_az = np.linspace(0, 2*np.pi, len(self.raw_az), endpoint=use_endpoint)
             self.raw_theta_el = np.linspace(0, 2*np.pi, len(self.raw_el), endpoint=use_endpoint)
             
-            # Normalize data to 360 points
             self._normalize_inputs()
 
         except Exception as e:
             raise RuntimeError(f"Failed to load file: {e}")
 
     def _normalize_inputs(self):
-        # Original indices
-        # Use the stored state to determine if we are interpolating 
-        # from a closed loop (endpoint=True) or open (endpoint=False)
         use_endpoint = self.is_loop_closed
-        
         idx_az = np.linspace(0, 360, len(self.raw_az), endpoint=use_endpoint)
         idx_el = np.linspace(0, 360, len(self.raw_el), endpoint=use_endpoint)
-        
-        # Target grid (0..359)
         target_deg = np.arange(0, 360, 1)
 
-        # Cubic interpolation
         self.az_norm = interp1d(idx_az, self.raw_az, kind='cubic', fill_value="extrapolate")(target_deg)
         self.el_norm = interp1d(idx_el, self.raw_el, kind='cubic', fill_value="extrapolate")(target_deg)
 
     def run_interpolation(self, method, k=2, n=5, do_smooth=False):
         self.method_name = method
-        
         g_az = self.az_norm
-        
         g_el = self.el_norm 
 
         if method == 'Summing':
@@ -152,12 +121,9 @@ class AntennaModel:
         else:
             raise ValueError("Unknown method")
             
-        # --- 3D SURFACE SMOOTHING ---
         if do_smooth:
-            # Apply Gaussian filter to smooth jagged edges
-            # Sigma=1 provides gentle smoothing without losing main features
+            # Gaussian filter (sigma=1) smooths pattern
             self.pattern_3d = gaussian_filter(self.pattern_3d, sigma=1)
-        # ----------------------------
 
         self._spherical_to_cartesian()
 
@@ -165,7 +131,6 @@ class AntennaModel:
         azimuth = np.deg2rad(np.arange(0, 360, 1))
         elevation = np.deg2rad(np.arange(0, 180, 1))
         
-        # Normalize gain
         norm_val = -np.min(self.pattern_3d) if np.any(self.pattern_3d < 0) else 0
         r = self.pattern_3d + norm_val
         
@@ -175,42 +140,34 @@ class AntennaModel:
         self.y = r * np.sin(el_grid) * np.sin(az_grid)
         self.z = r * np.cos(el_grid)
 
-    # --- EXPORT 3D PATTERN AS CSV ---
     def export_csv(self, filename):
-        # Phi: Azimuth(0 to 360)
-        # Theta: Elevation (0 to 179) - corrected to avoid index error
+        """
+        Export 3D pattern with peak aligned to Phi = 0°
+        Phi: Azimuth(0 to 359)
+        Theta: Elevation (0 to 179) 
+        """
 
         if self.pattern_3d is None:
             return
         try:
-            # align peak to Phi=0
             peak_flat_idx = np.argmax(self.pattern_3d)
             peak_az_idx, _ = np.unravel_index(peak_flat_idx, self.pattern_3d.shape)
             
-            # Define Export Range
-            phi_vals = np.arange(0, 361, 1)    
+            phi_vals = np.arange(0, 360, 1)    
             theta_vals = np.arange(0, 180, 1)
 
-            # Data Extraction
             el_indices = theta_vals 
-            az_indices = (peak_az_idx + phi_vals) % 360 # Prepare Indices for Phi (Rows)
+            az_indices = (peak_az_idx + phi_vals) % 360
 
-            # Create Meshgrid for data extraction (Indices)
             az_grid, el_grid = np.meshgrid(az_indices, el_indices, indexing='xy')
-            
-            # Create Meshgrid for labels (0..360, 0..180) to match the data structure
             phi_grid, theta_grid = np.meshgrid(phi_vals, theta_vals, indexing='xy')
 
-            # Extract Values
-            # We transpose (.T) so the shape becomes (Phi, Theta) -> (361, 180)
             gains = self.pattern_3d[az_grid.T, el_grid.T] 
             
-            # Flatten arrays using the exact same structure to ensure 1:1 mapping
             flat_gains = gains.flatten()
             flat_phi = phi_grid.T.flatten()
             flat_theta = theta_grid.T.flatten()
 
-            # Write to File
             header = "Phi[deg],Theta[deg],dB10normalize(GainTotal)"
             data_str = [f"{p},{t},{g:.4e}" for p, t, g in zip(flat_phi, flat_theta, flat_gains)]
             
@@ -221,57 +178,49 @@ class AntennaModel:
         except Exception as e:
             raise RuntimeError(f"Export failed: {e}")
 
-    # --- INTERPOLATION ALGORITHMS ---
     def _algo_summing(self, g_az, g_el):
+        """Adds the logarithmic (dB) patterns. Assumes pattern seperability."""
         pattern = np.zeros((360, 180))
-    
-        # First half (0-180)
         pattern[:180, :] = g_az[:180, np.newaxis] + g_el[:180]
-        
-        # Second half (180-360) -> Reversed
         pattern[180:, :] = g_az[180:, np.newaxis] + g_el[180:][::-1]
         return pattern
 
     def _algo_approx(self, g_az, g_el, k=2):
+        """Summing algorithm with geometric crossweighting."""
         pattern = np.zeros((360, 180))
         
-        # Calculate linear scale on FULL arrays first
         vert = 10**(g_el/10)
         hor = 10**(g_az/10)
         
         def calc_segment(db_h, lin_h, db_v, lin_v):
-            # w1 = vertical_linear * (1 - horizontal_linear)
             w1 = lin_v * (1 - lin_h[:, np.newaxis])
-            # w2 = horizontal_linear * (1 - vertical_linear)
             w2 = lin_h[:, np.newaxis] * (1 - lin_v)
-            
-            # num = horizontal_dB * w1 + vertical_dB * w2
             num = db_h[:, np.newaxis] * w1 + db_v * w2
             den = (w1**k + w2**k)**(1/k)
+            # Handle case where both weights are zero
             mask = (w1 == 0) & (w2 == 0)
             return np.where(mask, 0, num/den)
 
-        # First half: 0 to 180
         pattern[:180, :] = calc_segment(g_az[:180], hor[:180], g_el[:180], vert[:180])
-        
-        # Second half: 180 to 360 (Elevation reversed)
         pattern[180:, :] = calc_segment(g_az[180:], hor[180:], g_el[180:][::-1], vert[180:][::-1])
         return pattern
 
     def _algo_hybrid(self, g_az, g_el, k=2, n=20):
-        # Pass full arrays through to sub-functions
+        """Blend approximation and summing methods"""
         approx = self._algo_approx(g_az, g_el, k=k)
         summing = self._algo_summing(g_az, g_el)
         sum_dec = 10**(summing/10)
         return summing * (sum_dec**(1/n)) + approx * (1 - sum_dec**(1/n))
 
     def get_reconstruction_error(self):
-        # Slice the 3D pattern to get back 2D cuts
-        
-        # Azimuth: Uses index 0 (was 90)
+        """
+        Extract 2D cuts from 3D pattern for validation. 
+        Nonrigorous, just a sanity check. Refer to documentation.
+        """
+        # Azimuth cut at elevation index 0 (was 90)
         az_reconstructed = self.pattern_3d[:, 0] 
         
-        # Elevation: Uses index 0 and index 359 reversed (was 0 and 180 reversed)
+        # Elevation cut - concatenate forward and reversed (was 0 and 180 reversed)
         el_reconstructed = np.concatenate((self.pattern_3d[0, :], self.pattern_3d[359, :][::-1]))
 
         n_az = min(len(self.az_norm), len(az_reconstructed))
@@ -282,10 +231,6 @@ class AntennaModel:
         
         return mse_az, mse_el, az_reconstructed, el_reconstructed
 
-
-# ==========================================
-# GRAPHIC USER INTERFACE
-# ==========================================
 
 class PlotPanel(tk.Frame):
     def __init__(self, parent, title, projection=None):
@@ -304,12 +249,9 @@ class PlotPanel(tk.Frame):
         self.ax.set_title(title, fontsize=10)
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
-        
-        # Add right-click context menu for saving plots
         self.canvas.get_tk_widget().bind("<Button-3>", self._show_context_menu)
         
     def _show_context_menu(self, event):
-        """Show context menu on right-click"""
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label="Save Image As...", command=self._save_figure)
         try:
@@ -318,7 +260,6 @@ class PlotPanel(tk.Frame):
             menu.grab_release()
     
     def _save_figure(self):
-        """Save the figure using file dialog"""
         filetypes = [
             ("PNG Image", "*.png"),
             ("PDF Document", "*.pdf"),
@@ -348,18 +289,15 @@ class SetupDialog:
         
         self.filepath = initial_file
         self.method = tk.StringVar(value="Summing")
-        
         self.var_k = tk.StringVar() 
         self.var_n = tk.StringVar() 
-        
         self.var_autocenter = tk.BooleanVar(value=True)
         self.var_loop_closure = tk.BooleanVar(value=True)
         self.var_smoothing = tk.BooleanVar(value=True)
-        
         self.confirmed = False
+        
         self._build_ui()
         
-        # Update label if initial file provided
         if self.filepath:
             self.lbl_file.config(text=os.path.basename(self.filepath), foreground="black")
 
@@ -375,7 +313,6 @@ class SetupDialog:
         for m in ['Summing', 'Approximation', 'Hybrid']:
             ttk.Radiobutton(frame_method, text=m, variable=self.method, value=m).pack(anchor='w', padx=10)
 
-        # --- INTERPOLATION WEIGHTS ---
         frame_weights = ttk.LabelFrame(self.root, text="Interpolation Weights")
         frame_weights.pack(fill="x", padx=10, pady=5)
         
@@ -390,7 +327,7 @@ class SetupDialog:
         ttk.Entry(f_n, textvariable=self.var_n, width=10).pack(side="right")
 
         lbl_warn = ttk.Label(frame_weights, 
-                             text="Warning: Do not enter values here without reason!\nLeave unspecified to use default values.", 
+                             text="Leave unspecified to use default values.", 
                              foreground="red", font=("Arial", 8, "italic"), justify="center")
         lbl_warn.pack(pady=5)
 
@@ -423,7 +360,6 @@ class SetupDialog:
     def show(self):
         self.root.mainloop()
         
-        # Handle User Inputs for weights
         k_val = self.var_k.get().strip()
         n_val = self.var_n.get().strip()
         
@@ -433,7 +369,6 @@ class SetupDialog:
             if k_out <= 0 or n_out <= 0:
                 messagebox.showerror("Input Error", "Weights k and n must be greater than 0.")
                 self.confirmed = False
-                # If invalid, return None so main knows not to proceed
                 return None 
             
         except ValueError:
@@ -456,7 +391,6 @@ class ResultsWindow:
         self.root.geometry("1100x600") 
         self._init_top_bar()
         
-        # Tabs
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True)
         
@@ -466,16 +400,12 @@ class ResultsWindow:
         self._init_tab_error()
 
     def _init_top_bar(self):
-        """Creates a top bar with navigation controls"""
         top_frame = ttk.Frame(self.root)
         top_frame.pack(side="top", fill="x", pady=5, padx=10)
-        
         btn_back = ttk.Button(top_frame, text="< Back to Setup", command=self._on_back)
         btn_back.pack(side="left")
 
     def _on_back(self):
-        """Closes results and restarts main to show setup"""
-        # Persist file path
         prev_file = self.model.filepath
         self.root.destroy()
         main(initial_file=prev_file)
@@ -511,83 +441,63 @@ class ResultsWindow:
         p2.ax.plot(self.model.theta_norm, self.model.el_norm, color='g', label='Input')
 
     def _init_tab_3d(self):
-            frame = ttk.Frame(self.notebook)
-            self.notebook.add(frame, text='3D Pattern')
-            
-            # Configure for two columns: 3D view (left), 2D Map (right)
-            frame.columnconfigure(0, weight=1)
-            frame.columnconfigure(1, weight=1)
-            
-            frame.rowconfigure(0, weight=0) # Button row
-            frame.rowconfigure(1, weight=1) # Plot row
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text='3D Pattern')
+        
+        frame.columnconfigure(0, weight=1)
+        frame.columnconfigure(1, weight=1)
+        frame.rowconfigure(0, weight=0)
+        frame.rowconfigure(1, weight=1)
 
-            btn_frame = ttk.Frame(frame)
-            btn_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
-            
-            btn_export = ttk.Button(btn_frame, text="Export 3D Pattern as CSV", command=self._export_csv)
-            btn_export.pack(anchor="center")
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
+        btn_export = ttk.Button(btn_frame, text="Export 3D Pattern as CSV", command=self._export_csv)
+        btn_export.pack(anchor="center")
 
-            # --- DATA PREPARATION ---
-            # Normalize data to 0 dB max
-            max_gain = np.max(self.model.pattern_3d)
-            plot_data = self.model.pattern_3d - max_gain
+        max_gain = np.max(self.model.pattern_3d)
+        plot_data = self.model.pattern_3d - max_gain
 
-            # 1. Wrap the Scalar Data (Gain)
-            # Concatenate the first row (index 0) to the end of the array
-            plot_data_wrapped = np.concatenate([plot_data, plot_data[:1, :]], axis=0)
+        # Wrap arrays to close the azimuthal seam
+        plot_data_wrapped = np.concatenate([plot_data, plot_data[:1, :]], axis=0)
+        x_wrapped = np.concatenate([self.model.x, self.model.x[:1, :]], axis=0)
+        y_wrapped = np.concatenate([self.model.y, self.model.y[:1, :]], axis=0)
+        z_wrapped = np.concatenate([self.model.z, self.model.z[:1, :]], axis=0)
 
-            # 2. Wrap the Spatial Coordinates (X, Y, Z)
-            # We do the same for the mesh coordinates so the physical geometry closes
-            x_wrapped = np.concatenate([self.model.x, self.model.x[:1, :]], axis=0)
-            y_wrapped = np.concatenate([self.model.y, self.model.y[:1, :]], axis=0)
-            z_wrapped = np.concatenate([self.model.z, self.model.z[:1, :]], axis=0)
+        vmin = np.min(plot_data_wrapped)
+        vmax = np.max(plot_data_wrapped)
+        norm = Normalize(vmin=vmin, vmax=vmax)
+        surface_colors = cm.nipy_spectral(norm(plot_data_wrapped))
 
-            # Create Color Mapping
-            vmin = np.min(plot_data_wrapped)
-            vmax = np.max(plot_data_wrapped)
-            norm = Normalize(vmin=vmin, vmax=vmax)
-            
-            # Generate colors based on the WRAPPED data
-            surface_colors = cm.nipy_spectral(norm(plot_data_wrapped))
+        p3d = PlotPanel(frame, f"Reconstructed Pattern (3D Polar Plot)", projection='3d')
+        p3d.grid(row=1, column=0, sticky="nsew")
+        
+        surf = p3d.ax.plot_surface(
+            x_wrapped, y_wrapped, z_wrapped, 
+            facecolors=surface_colors,
+            rstride=2, cstride=2,
+            linewidth=0, antialiased=False, shade=False
+        )
+        
+        m = cm.ScalarMappable(cmap=cm.nipy_spectral, norm=norm)
+        m.set_array([])
+        p3d.figure.colorbar(m, ax=p3d.ax, shrink=0.5, aspect=5, label='Normalized Gain [dB]')
+        p3d.ax.axis('off')
 
-            # --- Left Side: 3D Surface ---
-            p3d = PlotPanel(frame, f"Reconstructed Pattern (3D Polar Plot)", projection='3d')
-            p3d.grid(row=1, column=0, sticky="nsew")
-            
-            # Plot using the WRAPPED arrays
-            surf = p3d.ax.plot_surface(
-                x_wrapped, y_wrapped, z_wrapped, 
-                facecolors=surface_colors,
-                rstride=2, cstride=2,
-                linewidth=0, antialiased=False, shade=False
-            )
-            
-            # Fake Colorbar
-            m = cm.ScalarMappable(cmap=cm.nipy_spectral, norm=norm)
-            m.set_array([])
-            p3d.figure.colorbar(m, ax=p3d.ax, shrink=0.5, aspect=5, label='Normalized Gain [dB]')
-            p3d.ax.axis('off')
+        p_2d = PlotPanel(frame, "Reconstructed Pattern (2D Heatmap)")
+        p_2d.grid(row=1, column=1, sticky="nsew")
 
-            # --- Right Side: 2D Heatmap ---
-            p_2d = PlotPanel(frame, "Reconstructed Pattern (2D Heatmap)")
-            p_2d.grid(row=1, column=1, sticky="nsew")
-
-            extent = [0, 180, 0, 360] 
-
-            # We can use the wrapped data here too, or original. 
-            # Using wrapped ensures the top pixel row matches the bottom perfectly.
-            im = p_2d.ax.imshow(plot_data_wrapped, 
-                                extent=extent,
-                                aspect='auto', 
-                                origin='lower',
-                                cmap=cm.nipy_spectral,
-                                interpolation='bilinear',
-                                vmin=vmin, vmax=vmax)
-            
-            p_2d.ax.set_xlabel("Theta (degree)")
-            p_2d.ax.set_ylabel("Phi (degree)")
-            
-            p_2d.figure.colorbar(im, ax=p_2d.ax, label='Normalized Gain [dB]')
+        extent = [0, 180, 0, 360] 
+        im = p_2d.ax.imshow(plot_data_wrapped, 
+                            extent=extent,
+                            aspect='auto', 
+                            origin='lower',
+                            cmap=cm.nipy_spectral,
+                            interpolation='bilinear',
+                            vmin=vmin, vmax=vmax)
+        
+        p_2d.ax.set_xlabel("Theta (degree)")
+        p_2d.ax.set_ylabel("Phi (degree)")
+        p_2d.figure.colorbar(im, ax=p_2d.ax, label='Normalized Gain [dB]')
 
     def _export_csv(self):
         filename = filedialog.asksaveasfilename(
@@ -603,26 +513,20 @@ class ResultsWindow:
                 messagebox.showerror("Export Failed", str(e))
 
     def _init_tab_error(self):
-        """Tab 3: Cartesian & Polar Error Cuts (2x2 Grid)"""
         frame = ttk.Frame(self.notebook)
         self.notebook.add(frame, text='Reconstruction Error')
         
-        # Layout: 2 Rows, 2 Columns + 1 Row for Stats
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(0, weight=3) # Rect Plots
-        frame.rowconfigure(1, weight=3) # Polar Plots
-        frame.rowconfigure(2, weight=1) # Text stats
+        frame.rowconfigure(0, weight=3)
+        frame.rowconfigure(1, weight=3)
+        frame.rowconfigure(2, weight=1)
 
-        # Calculate errors
         mse_az, mse_el, az_rec, el_rec = self.model.get_reconstruction_error()
 
         ticks = [0, np.pi/2, np.pi, 3*np.pi/2, 2*np.pi]
         labels = [r'$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']
 
-        # --- ROW 0: RECTANGULAR PLOTS ---
-        
-        # Rect Azimuth
         p_az_rect = PlotPanel(frame, "Azimuth Error (Rectangular)")
         p_az_rect.grid(row=0, column=0, sticky="nsew")
         p_az_rect.ax.plot(self.model.theta_norm, self.model.az_norm, 'g:', linewidth=2, label='Original')
@@ -632,7 +536,6 @@ class ResultsWindow:
         p_az_rect.ax.set_ylabel("Normalized Gain [dB]")
         p_az_rect.ax.legend()
 
-        # Rect Elevation
         p_el_rect = PlotPanel(frame, "Elevation Error (Rectangular)")
         p_el_rect.grid(row=0, column=1, sticky="nsew")
         p_el_rect.ax.plot(self.model.theta_norm, self.model.el_norm, 'g:', linewidth=2, label='Original')
@@ -641,21 +544,16 @@ class ResultsWindow:
         p_el_rect.ax.set_xticklabels(labels)
         p_el_rect.ax.legend()
 
-        # --- ROW 1: POLAR PLOTS ---
-
-        # Polar Azimuth
         p_az_pol = PlotPanel(frame, "Azimuth Error (Polar)", projection='polar')
         p_az_pol.grid(row=1, column=0, sticky="nsew")
         p_az_pol.ax.plot(self.model.theta_norm, self.model.az_norm, 'g:', linewidth=2, label='Original')
         p_az_pol.ax.plot(self.model.theta_norm, az_rec, 'k', label='Reconstructed')
 
-        # Polar Elevation
         p_el_pol = PlotPanel(frame, "Elevation Error (Polar)", projection='polar')
         p_el_pol.grid(row=1, column=1, sticky="nsew")
         p_el_pol.ax.plot(self.model.theta_norm, self.model.el_norm, 'g:', linewidth=2, label='Original')
         p_el_pol.ax.plot(self.model.theta_norm, el_rec, 'k', label='Reconstructed')
 
-        # --- ROW 2: STATS ---
         stats_frame = ttk.Frame(frame)
         stats_frame.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=20)
         
@@ -670,16 +568,11 @@ class ResultsWindow:
     def show(self):
         self.root.mainloop()
 
-# ==========================================
-# RUN CODE
-# ==========================================
 
 def main(initial_file=None):
-    # Run Setup Dialog
     setup = SetupDialog(initial_file=initial_file)
     result = setup.show()
     
-    # Handle abort if validation failed or window closed
     if result is None:
         sys.exit()
         
@@ -690,7 +583,6 @@ def main(initial_file=None):
         print("Analysis cancelled.")
         sys.exit()
 
-    # Initialize Model & Process Data
     try:
         model = AntennaModel()
         
@@ -698,21 +590,18 @@ def main(initial_file=None):
         print(f"Loading: {filepath}...")
         print(f"Settings: Auto-Center={do_center}, Loop-Closure={do_loop}, Smoothing={do_smooth}")
         
-        # PASS FLAGS TO LOAD_DATA
         model.load_data(filepath, do_center, do_loop)
         
         print("--------------------------")
         print(f"Running {method} Interpolation...")
         print(f"Weights: k={k_val}, n={n_val}")
         
-        # PASS WEIGHTS TO INTERPOLATION
         model.run_interpolation(method, k=k_val, n=n_val, do_smooth=do_smooth)
         
     except Exception as e:
         tk.messagebox.showerror("Processing Error", str(e))
         sys.exit()
 
-    # Launch Results View
     print("--------------------------")
     print("Launching Visualization...")
     app = ResultsWindow(model)
