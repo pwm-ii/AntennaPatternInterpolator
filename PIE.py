@@ -55,57 +55,61 @@ class AntennaModel:
         self.method_name = ""
 
     def load_data(self, filepath, do_autocenter, do_loop_closure):
-        self.filepath = filepath
-        self.is_loop_closed = do_loop_closure
-        try:
-            raw_lines = []
-            for encoding in ['utf-16', 'utf-8', 'latin-1']:
-                try:
-                    with open(filepath, 'r', encoding=encoding) as f:
-                        raw_lines = f.readlines()
-                    break
-                except UnicodeError:
-                    continue
-            
-            if not raw_lines:
-                raise ValueError("Could not decode file with standard encodings.")
-
-            data = [float(line.strip()) for line in raw_lines if line.strip()]
-            
-            if len(data) < self.MIN_DATA_POINTS: 
-                raise ValueError("File contains insufficient data.")
-
-            # Assume file is 50% Azimuth, 50% Elevation
-            midpoint = len(data) // 2
-            self.raw_az = np.array(data[:midpoint])
-            self.raw_el = np.array(data[midpoint:])
-            
-            if do_autocenter:
-                # Align main lobe (peak datapoint) peaks to 0°. Only use if Az/El peaks should coincide.
-                if len(self.raw_az) > 0:
-                    shift_az = -np.argmax(self.raw_az)
-                    self.raw_az = np.roll(self.raw_az, shift_az)
+            self.filepath = filepath
+            self.is_loop_closed = do_loop_closure
+            try:
+                raw_lines = []
+                encodings_to_try = ['utf-8-sig', 'utf-8', 'utf-16', 'latin-1']
                 
-                if len(self.raw_el) > 0:
-                    shift_el = -np.argmax(self.raw_el)
-                    self.raw_el = np.roll(self.raw_el, shift_el)
-            
-            if do_loop_closure:
-                # Force first/last continuity for low-quality measurements
-                if len(self.raw_az) > 0 and self.raw_az[0] != self.raw_az[-1]:
-                    self.raw_az = np.append(self.raw_az, self.raw_az[0])
+                for encoding in encodings_to_try:
+                    try:
+                        with open(filepath, 'r', encoding=encoding) as f:
+                            raw_lines = f.readlines()
+                        if raw_lines and '\0' in raw_lines[0]:
+                            raise UnicodeError("Decoded content contains null bytes, likely wrong encoding.")
+                        break
+                    except UnicodeError:
+                        continue
+                
+                if not raw_lines:
+                    raise ValueError("Could not decode file with standard encodings.")
 
-                if len(self.raw_el) > 0 and self.raw_el[0] != self.raw_el[-1]:
-                    self.raw_el = np.append(self.raw_el, self.raw_el[0])
+                data = [float(line.strip()) for line in raw_lines if line.strip()]
+                
+                if len(data) < self.MIN_DATA_POINTS: 
+                    raise ValueError("File contains insufficient data.")
 
-            use_endpoint = do_loop_closure
-            self.raw_theta_az = np.linspace(0, 2*np.pi, len(self.raw_az), endpoint=use_endpoint)
-            self.raw_theta_el = np.linspace(0, 2*np.pi, len(self.raw_el), endpoint=use_endpoint)
-            
-            self._normalize_inputs()
+                # Assume file is 50% Azimuth, 50% Elevation
+                midpoint = len(data) // 2
+                self.raw_az = np.array(data[:midpoint])
+                self.raw_el = np.array(data[midpoint:])
+                
+                if do_autocenter:
+                    # Align main lobe (peak datapoint) peaks to 0°. Only use if Az/El peaks should coincide.
+                    if len(self.raw_az) > 0:
+                        shift_az = -np.argmax(self.raw_az)
+                        self.raw_az = np.roll(self.raw_az, shift_az)
+                    
+                    if len(self.raw_el) > 0:
+                        shift_el = -np.argmax(self.raw_el)
+                        self.raw_el = np.roll(self.raw_el, shift_el)
+                
+                if do_loop_closure:
+                    # Force first/last continuity for low-quality measurements
+                    if len(self.raw_az) > 0 and self.raw_az[0] != self.raw_az[-1]:
+                        self.raw_az = np.append(self.raw_az, self.raw_az[0])
 
-        except Exception as e:
-            raise RuntimeError(f"Failed to load file: {e}")
+                    if len(self.raw_el) > 0 and self.raw_el[0] != self.raw_el[-1]:
+                        self.raw_el = np.append(self.raw_el, self.raw_el[0])
+
+                use_endpoint = do_loop_closure
+                self.raw_theta_az = np.linspace(0, 2*np.pi, len(self.raw_az), endpoint=use_endpoint)
+                self.raw_theta_el = np.linspace(0, 2*np.pi, len(self.raw_el), endpoint=use_endpoint)
+                
+                self._normalize_inputs()
+
+            except Exception as e:
+                raise RuntimeError(f"Failed to load file: {e}")
 
     def _normalize_inputs(self):
         use_endpoint = self.is_loop_closed
