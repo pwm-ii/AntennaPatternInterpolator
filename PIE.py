@@ -29,6 +29,15 @@ from matplotlib import cm
 from matplotlib.colors import Normalize
 
 class AntennaModel:
+    ANGULAR_RESOLUTION = 1
+    FULL_ROTATION = 360
+    ELEVATION_RANGE = 180
+    HALF_ROTATION = 180
+    MIN_DATA_POINTS = 10
+    DEFAULT_K = 2.0
+    DEFAULT_N = 5.0
+    SIGMA_SMOOTHING = 1
+
     def __init__(self):
         self.filepath = None
         self.raw_az = None
@@ -37,7 +46,7 @@ class AntennaModel:
         self.raw_theta_el = None
         self.az_norm = None
         self.el_norm = None
-        self.theta_norm = np.deg2rad(np.arange(0, 360, 1))
+        self.theta_norm = np.deg2rad(np.arange(0, self.FULL_ROTATION, self.ANGULAR_RESOLUTION))
         self.is_loop_closed = False
         self.pattern_3d = None
         self.x = None
@@ -63,7 +72,7 @@ class AntennaModel:
 
             data = [float(line.strip()) for line in raw_lines if line.strip()]
             
-            if len(data) < 10: 
+            if len(data) < self.MIN_DATA_POINTS: 
                 raise ValueError("File contains insufficient data.")
 
             # Assume file is 50% Azimuth, 50% Elevation
@@ -100,14 +109,14 @@ class AntennaModel:
 
     def _normalize_inputs(self):
         use_endpoint = self.is_loop_closed
-        idx_az = np.linspace(0, 360, len(self.raw_az), endpoint=use_endpoint)
-        idx_el = np.linspace(0, 360, len(self.raw_el), endpoint=use_endpoint)
-        target_deg = np.arange(0, 360, 1)
+        idx_az = np.linspace(0, self.FULL_ROTATION, len(self.raw_az), endpoint=use_endpoint)
+        idx_el = np.linspace(0, self.FULL_ROTATION, len(self.raw_el), endpoint=use_endpoint)
+        target_deg = np.arange(0, self.FULL_ROTATION, self.ANGULAR_RESOLUTION)
 
         self.az_norm = interp1d(idx_az, self.raw_az, kind='cubic', fill_value="extrapolate")(target_deg)
         self.el_norm = interp1d(idx_el, self.raw_el, kind='cubic', fill_value="extrapolate")(target_deg)
 
-    def run_interpolation(self, method, k=2, n=5, do_smooth=False):
+    def run_interpolation(self, method, k=DEFAULT_K, n=DEFAULT_N, do_smooth=False):
         self.method_name = method
         g_az = self.az_norm
         g_el = self.el_norm 
@@ -122,14 +131,14 @@ class AntennaModel:
             raise ValueError("Unknown method")
             
         if do_smooth:
-            # Gaussian filter (sigma=1) smooths pattern
-            self.pattern_3d = gaussian_filter(self.pattern_3d, sigma=1)
+            # Gaussian filter smooths pattern
+            self.pattern_3d = gaussian_filter(self.pattern_3d, sigma=self.SIGMA_SMOOTHING)
 
         self._spherical_to_cartesian()
 
     def _spherical_to_cartesian(self):
-        azimuth = np.deg2rad(np.arange(0, 360, 1))
-        elevation = np.deg2rad(np.arange(0, 180, 1))
+        azimuth = np.deg2rad(np.arange(0, self.FULL_ROTATION, self.ANGULAR_RESOLUTION))
+        elevation = np.deg2rad(np.arange(0, self.ELEVATION_RANGE, self.ANGULAR_RESOLUTION))
         
         norm_val = -np.min(self.pattern_3d) if np.any(self.pattern_3d < 0) else 0
         r = self.pattern_3d + norm_val
@@ -153,11 +162,11 @@ class AntennaModel:
             peak_flat_idx = np.argmax(self.pattern_3d)
             peak_az_idx, _ = np.unravel_index(peak_flat_idx, self.pattern_3d.shape)
             
-            phi_vals = np.arange(0, 360, 1)    
-            theta_vals = np.arange(0, 180, 1)
+            phi_vals = np.arange(0, self.FULL_ROTATION, self.ANGULAR_RESOLUTION)    
+            theta_vals = np.arange(0, self.ELEVATION_RANGE, self.ANGULAR_RESOLUTION)
 
             el_indices = theta_vals 
-            az_indices = (peak_az_idx + phi_vals) % 360
+            az_indices = (peak_az_idx + phi_vals) % self.FULL_ROTATION
 
             az_grid, el_grid = np.meshgrid(az_indices, el_indices, indexing='xy')
             phi_grid, theta_grid = np.meshgrid(phi_vals, theta_vals, indexing='xy')
@@ -172,7 +181,7 @@ class AntennaModel:
             data_str = [f"{p},{t},{g:.4e}" for p, t, g in zip(flat_phi, flat_theta, flat_gains)]
             
             with open(filename, 'w') as f:
-                f.write(header + "\n")
+                f.write(f"{header}\n")
                 f.write("\n".join(data_str))
                         
         except Exception as e:
@@ -180,17 +189,23 @@ class AntennaModel:
 
     def _algo_summing(self, g_az, g_el):
         """Adds the logarithmic (dB) patterns. Assumes pattern seperability."""
-        pattern = np.zeros((360, 180))
-        pattern[:180, :] = g_az[:180, np.newaxis] + g_el[:180]
-        pattern[180:, :] = g_az[180:, np.newaxis] + g_el[180:][::-1]
+        pattern = np.zeros((self.FULL_ROTATION, self.ELEVATION_RANGE))
+        
+        # Split logic based on half rotation (0-179, 180-359)
+        mid = self.HALF_ROTATION
+        
+        pattern[:mid, :] = g_az[:mid, np.newaxis] + g_el[:mid]
+        pattern[mid:, :] = g_az[mid:, np.newaxis] + g_el[mid:][::-1]
         return pattern
 
     def _algo_approx(self, g_az, g_el, k=2):
         """Summing algorithm with geometric crossweighting."""
-        pattern = np.zeros((360, 180))
+        pattern = np.zeros((self.FULL_ROTATION, self.ELEVATION_RANGE))
         
         vert = 10**(g_el/10)
         hor = 10**(g_az/10)
+        
+        mid = self.HALF_ROTATION
         
         def calc_segment(db_h, lin_h, db_v, lin_v):
             w1 = lin_v * (1 - lin_h[:, np.newaxis])
@@ -201,11 +216,11 @@ class AntennaModel:
             mask = (w1 == 0) & (w2 == 0)
             return np.where(mask, 0, num/den)
 
-        pattern[:180, :] = calc_segment(g_az[:180], hor[:180], g_el[:180], vert[:180])
-        pattern[180:, :] = calc_segment(g_az[180:], hor[180:], g_el[180:][::-1], vert[180:][::-1])
+        pattern[:mid, :] = calc_segment(g_az[:mid], hor[:mid], g_el[:mid], vert[:mid])
+        pattern[mid:, :] = calc_segment(g_az[mid:], hor[mid:], g_el[mid:][::-1], vert[mid:][::-1])
         return pattern
 
-    def _algo_hybrid(self, g_az, g_el, k=2, n=20):
+    def _algo_hybrid(self, g_az, g_el, k=DEFAULT_K, n=20):
         """Blend approximation and summing methods"""
         approx = self._algo_approx(g_az, g_el, k=k)
         summing = self._algo_summing(g_az, g_el)
@@ -220,8 +235,9 @@ class AntennaModel:
         # Azimuth cut at elevation index 0 (was 90)
         az_reconstructed = self.pattern_3d[:, 0] 
         
-        # Elevation cut - concatenate forward and reversed (was 0 and 180 reversed)
-        el_reconstructed = np.concatenate((self.pattern_3d[0, :], self.pattern_3d[359, :][::-1]))
+        # Elevation cut - concatenate forward and reversed (was 0 and 180)
+        last_idx = self.FULL_ROTATION - 1
+        el_reconstructed = np.concatenate((self.pattern_3d[0, :], self.pattern_3d[last_idx, :][::-1]))
 
         n_az = min(len(self.az_norm), len(az_reconstructed))
         n_el = min(len(self.el_norm), len(el_reconstructed))
@@ -233,10 +249,15 @@ class AntennaModel:
 
 
 class PlotPanel(tk.Frame):
+    FIG_SIZE = (3, 2)
+    FIG_DPI = 100
+    SAVE_DPI = 300
+    TITLE_FONT_SIZE = 10
+
     def __init__(self, parent, title, projection=None):
         super().__init__(parent)
 
-        self.figure = Figure(figsize=(3, 2), dpi=100)
+        self.figure = Figure(figsize=self.FIG_SIZE, dpi=self.FIG_DPI)
         self.figure.set_tight_layout(True)
 
         if projection == '3d':
@@ -246,7 +267,7 @@ class PlotPanel(tk.Frame):
         else:
             self.ax = self.figure.add_subplot(111)
             
-        self.ax.set_title(title, fontsize=10)
+        self.ax.set_title(title, fontsize=self.TITLE_FONT_SIZE)
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         self.canvas.get_tk_widget().bind("<Button-3>", self._show_context_menu)
@@ -276,10 +297,10 @@ class PlotPanel(tk.Frame):
         
         if filename:
             try:
-                self.figure.savefig(filename, dpi=300, bbox_inches='tight')
+                self.figure.savefig(filename, dpi=self.SAVE_DPI, bbox_inches='tight')
                 messagebox.showinfo("Success", f"Image saved to:\n{filename}")
             except Exception as e:
-                messagebox.showerror("Save Failed", str(e))
+                messagebox.showerror("Save Failed", f"{e}")
 
 class SetupDialog:
     def __init__(self, initial_file=None):
@@ -364,16 +385,16 @@ class SetupDialog:
         n_val = self.var_n.get().strip()
         
         try:
-            k_out = float(k_val) if k_val else 2.0
-            n_out = float(n_val) if n_val else 5.0
+            k_out = float(k_val) if k_val else AntennaModel.DEFAULT_K
+            n_out = float(n_val) if n_val else AntennaModel.DEFAULT_N
             if k_out <= 0 or n_out <= 0:
                 messagebox.showerror("Input Error", "Weights k and n must be greater than 0.")
                 self.confirmed = False
                 return None 
             
         except ValueError:
-            k_out = 2.0
-            n_out = 5.0
+            k_out = AntennaModel.DEFAULT_K
+            n_out = AntennaModel.DEFAULT_N
 
         if not self.confirmed:
             return None
@@ -468,7 +489,7 @@ class ResultsWindow:
         norm = Normalize(vmin=vmin, vmax=vmax)
         surface_colors = cm.nipy_spectral(norm(plot_data_wrapped))
 
-        p3d = PlotPanel(frame, f"Reconstructed Pattern (3D Polar Plot)", projection='3d')
+        p3d = PlotPanel(frame, "Reconstructed Pattern (3D Polar Plot)", projection='3d')
         p3d.grid(row=1, column=0, sticky="nsew")
         
         surf = p3d.ax.plot_surface(
@@ -486,7 +507,7 @@ class ResultsWindow:
         p_2d = PlotPanel(frame, "Reconstructed Pattern (2D Heatmap)")
         p_2d.grid(row=1, column=1, sticky="nsew")
 
-        extent = [0, 180, 0, 360] 
+        extent = [0, self.model.ELEVATION_RANGE, 0, self.model.FULL_ROTATION] 
         im = p_2d.ax.imshow(plot_data_wrapped, 
                             extent=extent,
                             aspect='auto', 
@@ -510,7 +531,7 @@ class ResultsWindow:
                 self.model.export_csv(filename)
                 messagebox.showinfo("Export Successful", f"Data saved to:\n{filename}")
             except Exception as e:
-                messagebox.showerror("Export Failed", str(e))
+                messagebox.showerror("Export Failed", f"{e}")
 
     def _init_tab_error(self):
         frame = ttk.Frame(self.notebook)
@@ -599,7 +620,7 @@ def main(initial_file=None):
         model.run_interpolation(method, k=k_val, n=n_val, do_smooth=do_smooth)
         
     except Exception as e:
-        tk.messagebox.showerror("Processing Error", str(e))
+        tk.messagebox.showerror("Processing Error", f"{e}")
         sys.exit()
 
     print("--------------------------")
