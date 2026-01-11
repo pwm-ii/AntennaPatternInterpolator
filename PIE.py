@@ -33,8 +33,8 @@ from matplotlib.colors import Normalize
 class AntennaModel:
     ANGULAR_RESOLUTION = 1
     FULL_ROTATION = 360
-    ELEVATION_RANGE = 180
-    HALF_ROTATION = 180
+    HALF_ROTATION = FULL_ROTATION // 2
+    ELEVATION_RANGE = HALF_ROTATION #previously just defined as 180
     MIN_DATA_POINTS = 10
     DEFAULT_K = 2.0
     DEFAULT_N = 5.0
