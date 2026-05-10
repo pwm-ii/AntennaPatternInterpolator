@@ -22,14 +22,14 @@ import sys
 import numpy as np
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from scipy.interpolate import interp1d
-from scipy.ndimage import gaussian_filter
+from scipy.interpolate import CubicSpline
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib import cm
 from matplotlib.colors import Normalize
 
 class AntennaModel:
+    
     """
     Antenna pattern model and interpolation engine.
 
@@ -38,7 +38,7 @@ class AntennaModel:
       - Axis 0 (rows)   : Azimuth (Phi),   0–359°, step = ANGULAR_RESOLUTION
       - Axis 1 (columns): Elevation (Theta), 0–179°, step = ANGULAR_RESOLUTION
 
-    All input gain values are expected in dBi.
+    Input gain values should be in dB. Absolute gain reference is discarded; and data is peak-normalised.
     """
 
     ANGULAR_RESOLUTION = 1
@@ -48,7 +48,6 @@ class AntennaModel:
     MIN_DATA_POINTS = 10
     DEFAULT_K = 2.0
     DEFAULT_N = 5.0
-    SIGMA_SMOOTHING = 1
 
     def __init__(self):
         self.filepath = None
@@ -124,15 +123,29 @@ class AntennaModel:
                 raise RuntimeError(f"Failed to load file: {e}")
 
     def _normalize_inputs(self):
-        use_endpoint = self.is_loop_closed
-        idx_az = np.linspace(0, self.FULL_ROTATION, len(self.raw_az), endpoint=use_endpoint)
-        idx_el = np.linspace(0, self.FULL_ROTATION, len(self.raw_el), endpoint=use_endpoint)
+        """
+        Resample the raw azimuth and elevation cuts onto a uniform 1°-step grid
+        using a Periodic Cubic Spline.
+        """
         target_deg = np.arange(0, self.FULL_ROTATION, self.ANGULAR_RESOLUTION)
 
-        self.az_norm = interp1d(idx_az, self.raw_az, kind='cubic', fill_value="extrapolate")(target_deg)
-        self.el_norm = interp1d(idx_el, self.raw_el, kind='cubic', fill_value="extrapolate")(target_deg)
+        def _periodic_spline(raw):
+            if self.is_loop_closed:
+                # raw[0] == raw[-1]; index spans [0°, 360°] with n points.
+                idx = np.linspace(0, self.FULL_ROTATION, len(raw), endpoint=True)
+                data = raw
+            else:
+                # Close the loop by appending raw[0] at 360°.
+                idx = np.linspace(0, self.FULL_ROTATION, len(raw) + 1, endpoint=True)
+                data = np.append(raw, raw[0])
 
-    def run_interpolation(self, method, k=DEFAULT_K, n=DEFAULT_N, do_smooth=False):
+            cs = CubicSpline(idx, data, bc_type='periodic')
+            return cs(target_deg)
+
+        self.az_norm = _periodic_spline(self.raw_az)
+        self.el_norm = _periodic_spline(self.raw_el)
+
+    def run_interpolation(self, method, k=DEFAULT_K, n=DEFAULT_N):
         self.method_name = method
         g_az = self.az_norm
         g_el = self.el_norm 
@@ -145,10 +158,6 @@ class AntennaModel:
             self.pattern_3d = self._algo_hybrid(g_az, g_el, k=k, n=n)
         else:
             raise ValueError("Unknown method")
-            
-        if do_smooth:
-            # Gaussian filter smooths pattern
-            self.pattern_3d = gaussian_filter(self.pattern_3d, sigma=self.SIGMA_SMOOTHING)
 
         self._spherical_to_cartesian()
 
@@ -168,25 +177,29 @@ class AntennaModel:
     def export_csv(self, filename):
         """
         Export 3D pattern with peak aligned to Phi = 0°
-        Phi: Azimuth(0 to 359)
+        Phi: Azimuth (0 to 359)
         Theta: Elevation (0 to 179) 
         """
 
+        # Check if data exists before proceeding
         if self.pattern_3d is None:
-            return
+            raise RuntimeError("Export failed: No interpolation data available. Please run interpolation first.")
+
         try:
+            # Find peak to align Phi = 0° to the maximum gain point
             peak_flat_idx = np.argmax(self.pattern_3d)
             peak_az_idx, _ = np.unravel_index(peak_flat_idx, self.pattern_3d.shape)
             
             phi_vals = np.arange(0, self.FULL_ROTATION, self.ANGULAR_RESOLUTION)    
             theta_vals = np.arange(0, self.ELEVATION_RANGE, self.ANGULAR_RESOLUTION)
 
-            el_indices = theta_vals 
+            # Re-index azimuth so that the peak is at index 0 (Phi=0)
             az_indices = (peak_az_idx + phi_vals) % self.FULL_ROTATION
 
-            az_grid, el_grid = np.meshgrid(az_indices, el_indices, indexing='xy')
+            az_grid, el_grid = np.meshgrid(az_indices, theta_vals, indexing='xy')
             phi_grid, theta_grid = np.meshgrid(phi_vals, theta_vals, indexing='xy')
 
+            # Extract gains using the re-indexed grid
             gains = self.pattern_3d[az_grid.T, el_grid.T] 
             
             flat_gains = gains.flatten()
@@ -204,6 +217,7 @@ class AntennaModel:
             raise RuntimeError(f"Export failed: {e}")
 
     def _algo_summing(self, g_az, g_el):
+
         """
         Adds the logarithmic (dB) azimuth and elevation cuts to produce a full
         3D pattern. Assumes pattern separability.
@@ -218,6 +232,7 @@ class AntennaModel:
           symmetry, ensuring the elevation profile maps correctly across both
           hemispheres.
         """
+
         pattern = np.zeros((self.FULL_ROTATION, self.ELEVATION_RANGE))
         
         mid = self.HALF_ROTATION
@@ -226,7 +241,8 @@ class AntennaModel:
         pattern[mid:, :] = g_az[mid:, np.newaxis] + g_el[mid:][::-1]
         return pattern
 
-    def _algo_approx(self, g_az, g_el, k=2):
+    def _algo_approx(self, g_az, g_el, k=DEFAULT_K):
+
         """
         Summing algorithm with gain-weighted blending (p-norm blend).
 
@@ -236,9 +252,9 @@ class AntennaModel:
         - The denominator (w1**k + w2**k)**(1/k) is a p-norm (where p = k)
           applied to the weight vector [w1, w2], and is a generalisation of
           familiar norms:
-            - k=1  : sum of weights (linear blend)
-            - k=2  : Euclidean norm
-            - k→∞  : approaches max(w1, w2)
+            - k=1  : sum of weights (linear blend of the two cuts)
+            - k=2  : Uses Euclidean blending (square root of the sum of squares)
+            - k=inf  : The cut with the higher gain at that specific angle will be favored.
         - Dividing the weighted dB sum by this p-norm normalises the result so
           it stays in the same scale as the inputs. Tuning k controls how the
           two cuts compete: low k produces an even blend, high k increasingly
@@ -247,6 +263,7 @@ class AntennaModel:
           gain), the output is set to zero. This occurs only at the pattern peak
           and has negligible effect on the overall reconstruction.
         """
+
         pattern = np.zeros((self.FULL_ROTATION, self.ELEVATION_RANGE))
         
         vert = 10**(g_el/10)
@@ -267,7 +284,19 @@ class AntennaModel:
         return pattern
 
     def _algo_hybrid(self, g_az, g_el, k=DEFAULT_K, n=DEFAULT_N):
-        """Blend approximation and summing methods"""
+
+        """
+        Calculates a 3D pattern by cross-fading between the Summing and 
+        Approximation methods based on local gain intensity.
+
+        - The weighting factor 'W' is derived from the Summing method's 
+          linearized gain, modified by the power-law exponent (1/n). 
+            - High n: Summing' method is dominant (better for
+            preserving peak accuracy).
+            - Low n: Causes a faster transition to the 'Approximation' method 
+              as gain drops (better for smoothing noisy sidelobes or nulls).
+        """
+        
         approx = self._algo_approx(g_az, g_el, k=k)
         summing = self._algo_summing(g_az, g_el)
         sum_dec = 10**(summing/10)
@@ -332,7 +361,7 @@ class SetupDialog:
     def __init__(self, initial_file=None):
         self.root = tk.Tk()
         self.root.title("Antenna Interpolation Setup")
-        self.root.geometry("500x480")
+        self.root.geometry("500x440")
         
         self.filepath = initial_file
         self.method = tk.StringVar(value="Summing")
@@ -340,7 +369,6 @@ class SetupDialog:
         self.var_n = tk.StringVar() 
         self.var_autocenter = tk.BooleanVar(value=True)
         self.var_loop_closure = tk.BooleanVar(value=True)
-        self.var_smoothing = tk.BooleanVar(value=True)
         self.confirmed = False
         
         self._build_ui()
@@ -383,7 +411,6 @@ class SetupDialog:
         
         ttk.Checkbutton(frame_settings, text="Auto-Center Peaks (to 0°)", variable=self.var_autocenter).pack(anchor='w', padx=10)
         ttk.Checkbutton(frame_settings, text="Enforce Loop Closure", variable=self.var_loop_closure).pack(anchor='w', padx=10)
-        ttk.Checkbutton(frame_settings, text="Enable 3D Surface Smoothing (Gaussian Filter)", variable=self.var_smoothing).pack(anchor='w', padx=10)
 
         btn_frame = ttk.Frame(self.root)
         btn_frame.pack(pady=15)
@@ -427,8 +454,7 @@ class SetupDialog:
 
         return (self.filepath, self.method.get(), 
                 self.var_autocenter.get(), self.var_loop_closure.get(), 
-                k_out, n_out, self.var_smoothing.get(),
-                self.confirmed)
+                k_out, n_out, self.confirmed)
 
 class ResultsWindow:
     def __init__(self, model):
@@ -463,13 +489,19 @@ class ResultsWindow:
         frame.columnconfigure(1, weight=1)
         frame.rowconfigure(0, weight=1)
 
-        p1 = PlotPanel(frame, "Raw Azimuth Samples [dBi]", projection='polar')
+        p1 = PlotPanel(frame, "Raw Azimuth Planar Cut [dB]", projection='polar')
         p1.grid(row=0, column=0, sticky="nsew")
-        p1.ax.plot(self.model.raw_theta_az, self.model.raw_az, color='g', marker='.', linestyle='-', linewidth=0.5, label='Raw Az')
-        
-        p2 = PlotPanel(frame, "Raw Elevation Samples [dBi]", projection='polar')
+        p1.ax.set_theta_zero_location('N')
+        p1.ax.set_theta_direction(-1)
+        p1.ax.plot(self.model.raw_theta_az, self.model.raw_az, color='g',
+                   marker='.', linestyle='none', linewidth=0)
+
+        p2 = PlotPanel(frame, "Raw Elevation Planar Cut [dB]", projection='polar')
         p2.grid(row=0, column=1, sticky="nsew")
-        p2.ax.plot(self.model.raw_theta_el, self.model.raw_el, color='g', marker='.', linestyle='-', linewidth=0.5, label='Raw El')
+        p2.ax.set_theta_zero_location('N')
+        p2.ax.set_theta_direction(-1)
+        p2.ax.plot(self.model.raw_theta_el, self.model.raw_el, color='g',
+                   marker='.', linestyle='none', linewidth=0)
 
     def _init_tab_input(self):
         frame = ttk.Frame(self.notebook)
@@ -478,17 +510,21 @@ class ResultsWindow:
         frame.columnconfigure(1, weight=1)
         frame.rowconfigure(0, weight=1)
 
-        p1 = PlotPanel(frame, "Azimuth Cut [dBi]", projection='polar')
+        p1 = PlotPanel(frame, "Azimuth Planar Cut [dB]", projection='polar')
         p1.grid(row=0, column=0, sticky="nsew")
+        p1.ax.set_theta_zero_location('N')
+        p1.ax.set_theta_direction(-1)
         p1.ax.plot(self.model.theta_norm, self.model.az_norm, color='g', label='Input')
         
-        p2 = PlotPanel(frame, "Elevation Cut [dBi]", projection='polar')
+        p2 = PlotPanel(frame, "Elevation Planar Cut [dB]", projection='polar')
         p2.grid(row=0, column=1, sticky="nsew")
+        p2.ax.set_theta_zero_location('N')
+        p2.ax.set_theta_direction(-1)
         p2.ax.plot(self.model.theta_norm, self.model.el_norm, color='g', label='Input')
 
     def _init_tab_3d(self):
         frame = ttk.Frame(self.notebook)
-        self.notebook.add(frame, text='3D Pattern')
+        self.notebook.add(frame, text='Reconstructed 3D Pattern')
         
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
@@ -514,7 +550,7 @@ class ResultsWindow:
         norm = Normalize(vmin=vmin, vmax=vmax)
         surface_colors = cm.nipy_spectral(norm(plot_data_wrapped))
 
-        p3d = PlotPanel(frame, "Reconstructed Pattern (3D Polar Plot)", projection='3d')
+        p3d = PlotPanel(frame, "3D Polar Plot", projection='3d')
         p3d.grid(row=1, column=0, sticky="nsew")
         
         p3d.ax.plot_surface(
@@ -529,21 +565,38 @@ class ResultsWindow:
         p3d.figure.colorbar(m, ax=p3d.ax, shrink=0.5, aspect=5, label='Normalized Gain [dB]')
         p3d.ax.axis('off')
 
-        p_2d = PlotPanel(frame, "Reconstructed Pattern (2D Heatmap)")
+        # --- Polar heatmap: Phi (azimuth) as angular axis, Theta (elevation) as radial axis ---
+        p_2d = PlotPanel(frame, "2D Polar Heatmap", projection='polar')
         p_2d.grid(row=1, column=1, sticky="nsew")
 
-        extent = [0, self.model.ELEVATION_RANGE, 0, self.model.FULL_ROTATION] 
-        im = p_2d.ax.imshow(plot_data_wrapped, 
-                            extent=extent,
-                            aspect='auto', 
-                            origin='lower',
-                            cmap=cm.nipy_spectral,
-                            interpolation='bilinear',
-                            vmin=vmin, vmax=vmax)
-        
-        p_2d.ax.set_xlabel("Theta (degree)")
-        p_2d.ax.set_ylabel("Phi (degree)")
-        p_2d.figure.colorbar(im, ax=p_2d.ax, label='Normalized Gain [dB]')
+        # Build coordinate grids
+        # phi: 0–360° (azimuth), theta: 0–180° (elevation)
+        phi_deg = np.arange(0, self.model.FULL_ROTATION + 1, self.model.ANGULAR_RESOLUTION)
+        theta_deg = np.arange(0, self.model.ELEVATION_RANGE, self.model.ANGULAR_RESOLUTION)
+
+        phi_rad = np.deg2rad(phi_deg)
+        # plot_data_wrapped has shape (361, 180): axis0=phi, axis1=theta
+        phi_grid, theta_grid = np.meshgrid(phi_rad, theta_deg, indexing='ij')
+
+        p_2d.ax.pcolormesh(
+            phi_grid, theta_grid, plot_data_wrapped,
+            cmap=cm.nipy_spectral,
+            vmin=vmin, vmax=vmax,
+            shading='auto'
+        )
+
+        # Radial axis: theta goes 0 (centre) → 180° (outer edge)
+        p_2d.ax.set_theta_zero_location('N')
+        p_2d.ax.set_theta_direction(-1)
+        p_2d.ax.set_rlabel_position(25)
+        p_2d.ax.set_rlim(0, self.model.ELEVATION_RANGE)
+        p_2d.ax.set_rticks([0, 30, 60, 90, 120, 150, 180])
+        p_2d.ax.set_yticklabels(['0°', '30°', '60°', '90°', '120°', '150°', '180°'], fontsize=6.8)
+
+        # Add a colorbar via the figure
+        sm = cm.ScalarMappable(cmap=cm.nipy_spectral, norm=norm)
+        sm.set_array([])
+        p_2d.figure.colorbar(sm, ax=p_2d.ax, shrink=0.6, aspect=10, pad=0.15, label='Normalized Gain [dB]')
 
     def _export_csv(self):
         filename = filedialog.asksaveasfilename(
@@ -569,7 +622,7 @@ def main(initial_file=None):
     if result is None:
         sys.exit()
         
-    filepath, method, do_center, do_loop, k_val, n_val, do_smooth, confirmed = result
+    filepath, method, do_center, do_loop, k_val, n_val, confirmed = result
 
     if not confirmed:
         print("--------------------------")
@@ -581,7 +634,7 @@ def main(initial_file=None):
         
         print("--------------------------")
         print(f"Loading: {filepath}...")
-        print(f"Settings: Auto-Center={do_center}, Loop-Closure={do_loop}, Smoothing={do_smooth}")
+        print(f"Settings: Auto-Center={do_center}, Loop-Closure={do_loop}")
         
         model.load_data(filepath, do_center, do_loop)
         
@@ -589,7 +642,7 @@ def main(initial_file=None):
         print(f"Running {method} Interpolation...")
         print(f"Weights: k={k_val}, n={n_val}")
         
-        model.run_interpolation(method, k=k_val, n=n_val, do_smooth=do_smooth)
+        model.run_interpolation(method, k=k_val, n=n_val)
         
     except Exception as e:
         tk.messagebox.showerror("Processing Error", f"{e}")
@@ -604,18 +657,16 @@ if __name__ == "__main__":
     main()
 
 
-    '''
-    ===========================================================================
-    Copyright (C) 2025  Paul Mola
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.   
-    =========================================================================== 
-    '''
+# ===========================================================================
+# Copyright (C) 2025  Paul Mola
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+# ===========================================================================
