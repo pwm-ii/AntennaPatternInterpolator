@@ -30,10 +30,21 @@ from matplotlib import cm
 from matplotlib.colors import Normalize
 
 class AntennaModel:
+    """
+    Antenna pattern model and interpolation engine.
+
+    ----------------
+    pattern_3d has shape (360, 180), indexed as [az_index, el_index].
+      - Axis 0 (rows)   : Azimuth (Phi),   0–359°, step = ANGULAR_RESOLUTION
+      - Axis 1 (columns): Elevation (Theta), 0–179°, step = ANGULAR_RESOLUTION
+
+    All input gain values are expected in dBi.
+    """
+
     ANGULAR_RESOLUTION = 1
     FULL_ROTATION = 360
     HALF_ROTATION = FULL_ROTATION // 2
-    ELEVATION_RANGE = HALF_ROTATION #previously just defined as 180
+    ELEVATION_RANGE = HALF_ROTATION
     MIN_DATA_POINTS = 10
     DEFAULT_K = 2.0
     DEFAULT_N = 5.0
@@ -193,10 +204,22 @@ class AntennaModel:
             raise RuntimeError(f"Export failed: {e}")
 
     def _algo_summing(self, g_az, g_el):
-        """Adds the logarithmic (dB) patterns. Assumes pattern seperability."""
+        """
+        Adds the logarithmic (dB) azimuth and elevation cuts to produce a full
+        3D pattern. Assumes pattern separability.
+
+        - Physical elevation (theta) only spans 0–180°, but the input data
+          covers 0–360°. The second half (180–359°) is used to fill the back
+          hemisphere of the 3D pattern.
+        - In the back hemisphere, the elevation profile is geometrically
+          mirrored: a ray at azimuth (180+phi) and elevation theta is equivalent
+          to the same elevation traversed in the opposite direction.
+        - Reversing g_el for the second azimuth half (180–359°) enforces this
+          symmetry, ensuring the elevation profile maps correctly across both
+          hemispheres.
+        """
         pattern = np.zeros((self.FULL_ROTATION, self.ELEVATION_RANGE))
         
-        # Split logic based on half rotation (0-179, 180-359)
         mid = self.HALF_ROTATION
         
         pattern[:mid, :] = g_az[:mid, np.newaxis] + g_el[:mid]
@@ -204,7 +227,26 @@ class AntennaModel:
         return pattern
 
     def _algo_approx(self, g_az, g_el, k=2):
-        """Summing algorithm with geometric crossweighting."""
+        """
+        Summing algorithm with gain-weighted blending (p-norm blend).
+
+        - w1 and w2 are blending weights derived from the linearised gain values
+          of the elevation and azimuth cuts respectively. They represent how much
+          each cut contributes at a given point in the pattern.
+        - The denominator (w1**k + w2**k)**(1/k) is a p-norm (where p = k)
+          applied to the weight vector [w1, w2], and is a generalisation of
+          familiar norms:
+            - k=1  : sum of weights (linear blend)
+            - k=2  : Euclidean norm
+            - k→∞  : approaches max(w1, w2)
+        - Dividing the weighted dB sum by this p-norm normalises the result so
+          it stays in the same scale as the inputs. Tuning k controls how the
+          two cuts compete: low k produces an even blend, high k increasingly
+          favours whichever cut has the larger weight.
+        - Where both weights are simultaneously zero (both cuts at unity linear
+          gain), the output is set to zero. This occurs only at the pattern peak
+          and has negligible effect on the overall reconstruction.
+        """
         pattern = np.zeros((self.FULL_ROTATION, self.ELEVATION_RANGE))
         
         vert = 10**(g_el/10)
@@ -217,7 +259,6 @@ class AntennaModel:
             w2 = lin_h[:, np.newaxis] * (1 - lin_v)
             num = db_h[:, np.newaxis] * w1 + db_v * w2
             den = (w1**k + w2**k)**(1/k)
-            # Handle case where both weights are zero
             mask = (w1 == 0) & (w2 == 0)
             return np.where(mask, 0, num/den)
 
@@ -225,32 +266,12 @@ class AntennaModel:
         pattern[mid:, :] = calc_segment(g_az[mid:], hor[mid:], g_el[mid:][::-1], vert[mid:][::-1])
         return pattern
 
-    def _algo_hybrid(self, g_az, g_el, k=DEFAULT_K, n=20):
+    def _algo_hybrid(self, g_az, g_el, k=DEFAULT_K, n=DEFAULT_N):
         """Blend approximation and summing methods"""
         approx = self._algo_approx(g_az, g_el, k=k)
         summing = self._algo_summing(g_az, g_el)
         sum_dec = 10**(summing/10)
         return summing * (sum_dec**(1/n)) + approx * (1 - sum_dec**(1/n))
-
-    def get_reconstruction_error(self):
-        """
-        Extract 2D cuts from 3D pattern for validation. 
-        Nonrigorous, just a sanity check. Refer to documentation.
-        """
-        # Azimuth cut at elevation index 0 (was 90)
-        az_reconstructed = self.pattern_3d[:, 0] 
-        
-        # Elevation cut - concatenate forward and reversed (was 0 and 180)
-        last_idx = self.FULL_ROTATION - 1
-        el_reconstructed = np.concatenate((self.pattern_3d[0, :], self.pattern_3d[last_idx, :][::-1]))
-
-        n_az = min(len(self.az_norm), len(az_reconstructed))
-        n_el = min(len(self.el_norm), len(el_reconstructed))
-
-        mse_az = np.mean((self.az_norm[:n_az] - az_reconstructed[:n_az])**2)
-        mse_el = np.mean((self.el_norm[:n_el] - el_reconstructed[:n_el])**2)
-        
-        return mse_az, mse_el, az_reconstructed, el_reconstructed
 
 
 class PlotPanel(tk.Frame):
@@ -423,7 +444,6 @@ class ResultsWindow:
         self._init_tab_raw()
         self._init_tab_input()
         self._init_tab_3d()
-        self._init_tab_error()
 
     def _init_top_bar(self):
         top_frame = ttk.Frame(self.root)
@@ -497,7 +517,7 @@ class ResultsWindow:
         p3d = PlotPanel(frame, "Reconstructed Pattern (3D Polar Plot)", projection='3d')
         p3d.grid(row=1, column=0, sticky="nsew")
         
-        surf = p3d.ax.plot_surface(
+        p3d.ax.plot_surface(
             x_wrapped, y_wrapped, z_wrapped, 
             facecolors=surface_colors,
             rstride=2, cstride=2,
@@ -537,59 +557,6 @@ class ResultsWindow:
                 messagebox.showinfo("Export Successful", f"Data saved to:\n{filename}")
             except Exception as e:
                 messagebox.showerror("Export Failed", f"{e}")
-
-    def _init_tab_error(self):
-        frame = ttk.Frame(self.notebook)
-        self.notebook.add(frame, text='Reconstruction Error')
-        
-        frame.columnconfigure(0, weight=1)
-        frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(0, weight=3)
-        frame.rowconfigure(1, weight=3)
-        frame.rowconfigure(2, weight=1)
-
-        mse_az, mse_el, az_rec, el_rec = self.model.get_reconstruction_error()
-
-        ticks = [0, np.pi/2, np.pi, 3*np.pi/2, 2*np.pi]
-        labels = [r'$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']
-
-        p_az_rect = PlotPanel(frame, "Azimuth Error (Rectangular)")
-        p_az_rect.grid(row=0, column=0, sticky="nsew")
-        p_az_rect.ax.plot(self.model.theta_norm, self.model.az_norm, 'g:', linewidth=2, label='Original')
-        p_az_rect.ax.plot(self.model.theta_norm, az_rec, 'k', label='Reconstructed')
-        p_az_rect.ax.set_xticks(ticks)
-        p_az_rect.ax.set_xticklabels(labels)
-        p_az_rect.ax.set_ylabel("Normalized Gain [dB]")
-        p_az_rect.ax.legend()
-
-        p_el_rect = PlotPanel(frame, "Elevation Error (Rectangular)")
-        p_el_rect.grid(row=0, column=1, sticky="nsew")
-        p_el_rect.ax.plot(self.model.theta_norm, self.model.el_norm, 'g:', linewidth=2, label='Original')
-        p_el_rect.ax.plot(self.model.theta_norm, el_rec, 'k', label='Reconstructed')
-        p_el_rect.ax.set_xticks(ticks)
-        p_el_rect.ax.set_xticklabels(labels)
-        p_el_rect.ax.legend()
-
-        p_az_pol = PlotPanel(frame, "Azimuth Error (Polar)", projection='polar')
-        p_az_pol.grid(row=1, column=0, sticky="nsew")
-        p_az_pol.ax.plot(self.model.theta_norm, self.model.az_norm, 'g:', linewidth=2, label='Original')
-        p_az_pol.ax.plot(self.model.theta_norm, az_rec, 'k', label='Reconstructed')
-
-        p_el_pol = PlotPanel(frame, "Elevation Error (Polar)", projection='polar')
-        p_el_pol.grid(row=1, column=1, sticky="nsew")
-        p_el_pol.ax.plot(self.model.theta_norm, self.model.el_norm, 'g:', linewidth=2, label='Original')
-        p_el_pol.ax.plot(self.model.theta_norm, el_rec, 'k', label='Reconstructed')
-
-        stats_frame = ttk.Frame(frame)
-        stats_frame.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=20)
-        
-        txt = (f"Method: {self.model.method_name}\n"
-               f"----------------------------\n"
-               f"Azimuth MSE: {mse_az:.4f}\n"
-               f"Elevation MSE: {mse_el:.4f}\n")
-        
-        lbl = ttk.Label(stats_frame, text=txt, font=("Courier", 12), justify="center")
-        lbl.pack(pady=10)
 
     def show(self):
         self.root.mainloop()
