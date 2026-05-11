@@ -206,7 +206,7 @@ class AntennaModel:
             flat_phi = phi_grid.T.flatten()
             flat_theta = theta_grid.T.flatten()
 
-            header = "Phi[deg],Theta[deg],dB10normalize(GainTotal)"
+            header = "Phi[deg],Theta[deg],Gain[dB]"
             data_str = [f"{p},{t},{g:.4e}" for p, t, g in zip(flat_phi, flat_theta, flat_gains)]
             
             with open(filename, 'w') as f:
