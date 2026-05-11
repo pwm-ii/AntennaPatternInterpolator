@@ -19,7 +19,7 @@ Required Libraries: numpy, scipy, matplotlib, tkinter
 
 3.) INPUT FILE FORMAT
 ---------------------------------------------------------------------------
-The tool accepts text files (.ant, .txt, .csv) containing a SINGLE column 
+The tool accepts text files (.ant, .txt) containing a SINGLE column 
 of gain values (in dB).
 
 Structure Requirements:
@@ -85,7 +85,7 @@ C. Hybrid (Optimized)
          dominates a larger portion of the pattern. In effect, this improves 
          the Main Lobe accuracy but can degrade overall mean error.
        - Recommended Range: 3.5 to 6.0.
-           - Default is set to 6.0
+           - Default is set to 5.0
            - Yagi-Uda Antenna: Optimal n = 3.5
            - Panel Antenna: Optimal n = 5.0
 
@@ -101,9 +101,6 @@ C. Hybrid (Optimized)
 [ ] Enforce Loop Closure
     - Ensures the value at 0 degrees matches the value at 360 degrees.
     - Keep on to prevent gaps in the 3D mesh.
-
-[ ] Enable 3D Surface Smoothing (Gaussian Filter)
-    - Applies a low-pass filter to the generated 3D data.
 
 6.) EXPORT FORMAT
 ---------------------------------------------------------------------------

@@ -1,1 +1,0 @@
-Note: These Antenna Patterns are not mine. I am using the files provided by UniFi on their website as test patterns (https://help.ui.com/hc/en-us/articles/115005212927-AP-Antenna-Radiation-Patterns)
