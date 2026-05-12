@@ -176,43 +176,37 @@ class AntennaModel:
 
     def export_csv(self, filename):
         """
-        Export 3D pattern with peak aligned to Phi = 0°
-        Phi: Azimuth (0 to 359)
-        Theta: Elevation (0 to 179) 
+        Export 3D pattern to CSV.
+        Phi: Azimuth (0 to 359), Theta: Elevation (0 to 179)
+
+        The azimuth orientation in the export reflects whatever centering was
+        applied at load time (do_autocenter). No additional re-indexing is
+        performed here — doing so would silently misalign the exported coordinates
+        relative to the original measurement reference frame.
         """
 
-        # Check if data exists before proceeding
         if self.pattern_3d is None:
             raise RuntimeError("Export failed: No interpolation data available. Please run interpolation first.")
 
         try:
-            # Find peak to align Phi = 0° to the maximum gain point
-            peak_flat_idx = np.argmax(self.pattern_3d)
-            peak_az_idx, _ = np.unravel_index(peak_flat_idx, self.pattern_3d.shape)
-            
-            phi_vals = np.arange(0, self.FULL_ROTATION, self.ANGULAR_RESOLUTION)    
+            phi_vals   = np.arange(0, self.FULL_ROTATION,  self.ANGULAR_RESOLUTION)
             theta_vals = np.arange(0, self.ELEVATION_RANGE, self.ANGULAR_RESOLUTION)
 
-            # Re-index azimuth so that the peak is at index 0 (Phi=0)
-            az_indices = (peak_az_idx + phi_vals) % self.FULL_ROTATION
+            # Build coordinate grids matching the storage layout of pattern_3d:
+            # axis 0 = azimuth (Phi), axis 1 = elevation (Theta)
+            phi_grid, theta_grid = np.meshgrid(phi_vals, theta_vals, indexing='ij')
 
-            az_grid, el_grid = np.meshgrid(az_indices, theta_vals, indexing='xy')
-            phi_grid, theta_grid = np.meshgrid(phi_vals, theta_vals, indexing='xy')
+            flat_phi   = phi_grid.flatten()
+            flat_theta = theta_grid.flatten()
+            flat_gains = self.pattern_3d.flatten()  # No re-indexing; orientation already set at load time
 
-            # Extract gains using the re-indexed grid
-            gains = self.pattern_3d[az_grid.T, el_grid.T] 
-            
-            flat_gains = gains.flatten()
-            flat_phi = phi_grid.T.flatten()
-            flat_theta = theta_grid.T.flatten()
-
-            header = "Phi[deg],Theta[deg],Gain[dB]"
+            header   = "Phi[deg],Theta[deg],Gain[dB]"
             data_str = [f"{p},{t},{g:.4e}" for p, t, g in zip(flat_phi, flat_theta, flat_gains)]
-            
+
             with open(filename, 'w') as f:
                 f.write(f"{header}\n")
                 f.write("\n".join(data_str))
-                        
+
         except Exception as e:
             raise RuntimeError(f"Export failed: {e}")
 
